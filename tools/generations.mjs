@@ -159,7 +159,9 @@ export function generationStore(workspace, { measure, describeProject } = {}) {
       return serial(async () => {
         const ids = [];
         for (const item of items) {
-          const sources = tool === 'synth_drums' ? ['lmms-mcp-drum-synthesis'] : undefined;
+          const sources = tool === 'synth_drums'
+            ? ['lmms-mcp-drum-synthesis']
+            : (tool === 'create_drum_kit' && result?.licenceId ? [result.licenceId] : undefined);
           ids.push((await save(root, tool, item.options, item.facts, item.files, sources)).id);
         }
         return ids;

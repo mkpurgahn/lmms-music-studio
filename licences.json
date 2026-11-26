@@ -29,5 +29,53 @@
       "FluteStac.sfz": "b7c58dafab3ce35eebdc4a3942e603841e5f9dbda8449ea5a7af2f2678d8aed7",
       "ClarinetStac.sfz": "8329356d5c228589c05adb6194cfce828cab0573ccabcdadf1aa94d7fa5f3170"
     }
+  },
+  "upright-piano-kw": {
+    "licence": "CC0-1.0",
+    "author": "Gary Wolk",
+    "credit": "Upright Piano KW by Gary Wolk (FreePats project)",
+    "source": "https://freepats.zenvoid.org/Piano/acoustic-grand-piano.html",
+    "archive": "https://freepats.zenvoid.org/Piano/UprightPianoKW/UprightPianoKW-small-SF2-20190703.7z",
+    "bundled": false,
+    "install": "Downloaded and SHA-256 verified by setup-libraries-windows.ps1 / install_soundfont_pack into LMMS_SOUNDFONTS/upright-piano-kw.sf2.",
+    "files": {
+      "UprightPianoKW-small-20190703.sf2": "cf2a98eb38a32c4954b4b6e2caae4112d62dd8e892eceefdd7942b0e7d01ac2f"
+    }
+  },
+  "meta-open-sound": {
+    "licence": "CC0-1.0",
+    "author": "Meta Platforms, Inc.",
+    "credit": "Meta Open Sound Instruments (Nylon Guitar, Steel Guitar, Piano) — restricted strictly to /systems/instruments/* (excludes /corpora/oculus-audio-pack)",
+    "source": "https://github.com/facebookincubator/Meta-open-sound/blob/514c926efecdb3c7812bf00eedf8e5c8d61dd681/LICENSE",
+    "repository": "https://github.com/facebookincubator/Meta-open-sound",
+    "ref": "commit 514c926efecdb3c7812bf00eedf8e5c8d61dd681",
+    "licenceFile": "LICENSE",
+    "licenceSha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
+    "bundled": false,
+    "install": "Sparse checkout restricted to /systems/instruments/{meta-nylon-guitar,meta-steel-guitar,meta-piano} verified against SHA256SUMS and compiled to deterministic SF2."
+  },
+  "virtuosity-drums": {
+    "licence": "CC0-1.0",
+    "author": "Versilian Studios and Karoryfer Samples",
+    "credit": "Virtuosity Drums by Versilian Studios and Karoryfer Samples",
+    "source": "https://github.com/sfzinstruments/virtuosity_drums/blob/9f04cf9a734527edfbb0a4eee1f674e45bbf71bc/LICENSE",
+    "repository": "https://github.com/sfzinstruments/virtuosity_drums",
+    "ref": "commit 9f04cf9a734527edfbb0a4eee1f674e45bbf71bc",
+    "licenceFile": "LICENSE",
+    "licenceSha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
+    "bundled": false,
+    "install": "Sparse checkout of mid-mic GM kit samples compiled to deterministic Bank 128 SF2 in LMMS_SOUNDFONTS/virtuosity-drums.sf2."
+  },
+  "dsmolken-double-bass": {
+    "licence": "CC0-1.0",
+    "author": "D. Smolken (Karoryfer Samples)",
+    "credit": "1958 Otto Rubner Double Bass by D. Smolken",
+    "source": "https://github.com/sfzinstruments/dsmolken.double-bass/blob/c2985eb647109d2a8f30a70071e3e163339d7396/LICENSE",
+    "repository": "https://github.com/sfzinstruments/dsmolken.double-bass",
+    "ref": "commit c2985eb647109d2a8f30a70071e3e163339d7396",
+    "licenceFile": "LICENSE",
+    "licenceSha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
+    "bundled": false,
+    "install": "Optional expansion pack (upright-bass) compiled to deterministic SF2 in LMMS_SOUNDFONTS/upright-bass.sf2."
   }
 }

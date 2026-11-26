@@ -144,7 +144,7 @@ export function register({ tool, z, root, project, schemas, moduleGuidance }) {
           .map(n => ({ ...n, tick: n.tick - bar * BAR, length: Math.min(n.length, (bar + 64) * BAR - n.tick) }));
         if (selected.length) patterns.push({ name: 'Groove', bar, bars: Math.min(64, totalBars - bar), notes: selected });
       }
-      return { name: `Drum ${pitch}`, role: 'drums', voice: sample ? 'sample' : pitch === 36 ? 'kick' : pitch === 38 || pitch === 39 ? 'clap' : 'hat',
+      return { name: `Drum ${pitch}`, role: 'drums', voice: sample ? 'sample' : pitch === 36 ? 'kick' : pitch === 38 ? 'snare' : pitch === 39 ? 'clap' : 'hat',
         ...(sample ? { sample, rootMidi: pitch } : {}), volume: 70, pan: 0, patterns };
     });
     const tracks = items.map(item => schemas.track.parse(item));

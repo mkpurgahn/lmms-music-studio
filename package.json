@@ -38,6 +38,8 @@
     "effects.mjs",
     "tools/",
     "personas/*.json",
+    "licences.json",
+    "soundfont-lock.json",
     "schema/",
     "!tools/*.test.mjs",
     "sound-catalogue.json",

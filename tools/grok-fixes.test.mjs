@@ -92,19 +92,25 @@ test('WAV tools and stock drum provenance work through MCP', async t => {
       assert.match(result.content[0].text, /Invalid|pattern/i);
     }
     const listing = await call('list_drum_kits');
-    assert.equal(listing.kits.electronic.kick, 'drums/kick01.ogg');
-    assert.equal(listing.kits.electronic.snare, 'drums/snare_electro01.ogg');
-    assert.equal(listing.kits.acoustic.kick, 'drums/bassdrum_acoustic01.ogg');
-    assert.equal(listing.kits.acoustic.hat, 'drums/hihat_opened01.ogg');
-    for (const name of ['house', 'techno', 'trance', 'breaks']) {
-      assert.equal(listing.kits[name].openhat, 'drums/hihat_opened01.ogg');
+    for (const name of ['tight-synth', 'house-synth', 'electro-synth', '808-synth']) {
+      assert.equal(listing.kits[name].engine, 'synth');
+      assert.equal(listing.kits[name].publishable, true);
+      assert.ok(listing.kits[name].pieces.includes('kick'));
+      assert.ok(listing.kits[name].pieces.includes('snare'));
+      assert.ok(listing.kits[name].pieces.includes('openhat'));
     }
-    const kit = await call('create_drum_kit', { output: 'kit.mmp', kit: 'acoustic' });
-    assert.equal(kit.publishable, false);
-    assert.equal(kit.tracks.length, 4);
+    assert.equal(listing.kits['acoustic-cc0'].engine, 'sf2');
+    assert.equal(listing.kits['acoustic-cc0'].bank, 128);
+    assert.equal(listing.kits['acoustic-cc0'].patch, 0);
+    assert.equal(listing.kits['acoustic-cc0'].publishable, true);
+    const kit = await call('create_drum_kit', { output: 'kit.mmp', kit: 'tight-synth' });
+    assert.equal(kit.publishable, true);
+    assert.equal(kit.tracks.length, 5);
+    const kitXml = await readFile(path.join(workspace, 'kit.mmp'), 'utf8');
+    assert.doesNotMatch(kitXml, /drums\/.*\.ogg/i);
     const record = await call('show_generation', { id: kit.generationIds[0] });
-    assert.equal(record.publishable, false);
-    assert.deepEqual(record.sampleLibraries.map(item => item.id), ['lmms-factory-drums']);
+    assert.equal(record.publishable, true);
+    assert.deepEqual(record.sampleLibraries.map(item => item.id), ['lmms-mcp-drum-synthesis']);
   } finally {
     await client.close();
   }

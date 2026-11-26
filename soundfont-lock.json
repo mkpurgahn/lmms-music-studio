@@ -1,0 +1,131 @@
+{
+  "lockVersion": 1,
+  "licencePolicy": "CC0-1.0-only",
+  "soundfonts": {
+    "upright-piano-kw": {
+      "id": "upright-piano-kw",
+      "pack": "core",
+      "fileName": "upright-piano-kw.sf2",
+      "licence": "CC0-1.0",
+      "licenceRegistryId": "upright-piano-kw",
+      "sourceType": "archive-sf2",
+      "sourceUrl": "https://freepats.zenvoid.org/Piano/UprightPianoKW/UprightPianoKW-small-SF2-20190703.7z",
+      "archiveSha256": "3bd025e7c2ffa9e6f3f99215ce383c9cebbac991cfbf9be1453cdb4328ec3492",
+      "downloadBytes": 6093984,
+      "sf2Sha256": "cf2a98eb38a32c4954b4b6e2caae4112d62dd8e892eceefdd7942b0e7d01ac2f",
+      "sf2Bytes": 9456310,
+      "inputSampleCount": 26,
+      "aggregateSampleSha256": "cf2a98eb38a32c4954b4b6e2caae4112d62dd8e892eceefdd7942b0e7d01ac2f",
+      "presets": [
+        {
+          "name": "Upright piano KW",
+          "bank": 0,
+          "preset": 0
+        }
+      ]
+    },
+    "meta-guitars": {
+      "id": "meta-guitars",
+      "pack": "core",
+      "fileName": "meta-guitars.sf2",
+      "licence": "CC0-1.0",
+      "licenceRegistryId": "meta-open-sound",
+      "sourceType": "git-sfz",
+      "repository": "https://github.com/facebookincubator/Meta-open-sound.git",
+      "commit": "514c926efecdb3c7812bf00eedf8e5c8d61dd681",
+      "licenceSha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
+      "sourceSampleBytes": 16065205,
+      "gitObjectsBytes": 15794454,
+      "inputSampleCount": 267,
+      "aggregateSampleSha256": "6c38d024b05566276eb51f260c1d289988a4e874406bc316dc3de48e24007a02",
+      "sf2Sha256": "4de98f38e6070db8f80e5152157355c10c34c828a13c7edeefa0c53a83ab368e",
+      "sf2Bytes": 173312184,
+      "presets": [
+        {
+          "name": "Meta Nylon Guitar",
+          "bank": 0,
+          "preset": 0
+        },
+        {
+          "name": "Meta Steel Guitar",
+          "bank": 0,
+          "preset": 1
+        }
+      ]
+    },
+    "virtuosity-drums": {
+      "id": "virtuosity-drums",
+      "pack": "core",
+      "fileName": "virtuosity-drums.sf2",
+      "licence": "CC0-1.0",
+      "licenceRegistryId": "virtuosity-drums",
+      "sourceType": "git-sfz",
+      "repository": "https://github.com/sfzinstruments/virtuosity_drums.git",
+      "commit": "9f04cf9a734527edfbb0a4eee1f674e45bbf71bc",
+      "licenceSha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
+      "sourceSampleBytes": 5033515,
+      "gitObjectsBytes": 5302670,
+      "inputSampleCount": 6,
+      "aggregateSampleSha256": "ea47b47102072034bc7c80544191893f82bfa2847b507b11405cb3570a86422f",
+      "sf2Sha256": "e929ea36af78f6285e552bc01e75d898388779c36639d0797c6b3621ec16a5de",
+      "sf2Bytes": 7357710,
+      "presets": [
+        {
+          "name": "Virtuosity Drums GM",
+          "bank": 128,
+          "preset": 0
+        }
+      ]
+    },
+    "vsco-orchestra-core": {
+      "id": "vsco-orchestra-core",
+      "pack": "core",
+      "fileName": "vsco-orchestra-core.sf2",
+      "licence": "CC0-1.0",
+      "licenceRegistryId": "vsco-2-ce",
+      "sourceType": "git-sfz",
+      "repository": "https://github.com/sgossner/VSCO-2-CE.git",
+      "branch": "SFZ",
+      "commit": "6dd651d55dde97fd4028699be9d4481f26917891",
+      "licenceSha256": "4d2eef679d5faf924534bcc132646322e9a852ce50ae5616694e0b95f7b8275d",
+      "sourceSampleBytes": 56578100,
+      "gitObjectsBytes": 35403605,
+      "inputSampleCount": 40,
+      "aggregateSampleSha256": "b90dac280947d6de5f58c65972efead09ae58bf27d75a7028495bcb82f2bd696",
+      "sf2Sha256": "434865b8233fb0726571da18fd5da125a16fb7ef9cecaecfc46fd04aa60394ce",
+      "sf2Bytes": 55989320,
+      "presets": [
+        {
+          "name": "Violin Ensemble Sustain",
+          "bank": 0,
+          "preset": 0
+        },
+        {
+          "name": "Contrabass Sustain",
+          "bank": 0,
+          "preset": 1
+        },
+        {
+          "name": "French Horn Sustain",
+          "bank": 0,
+          "preset": 2
+        },
+        {
+          "name": "Flute Staccato",
+          "bank": 0,
+          "preset": 3
+        },
+        {
+          "name": "Concert Harp",
+          "bank": 0,
+          "preset": 4
+        },
+        {
+          "name": "Timpani",
+          "bank": 0,
+          "preset": 5
+        }
+      ]
+    }
+  }
+}

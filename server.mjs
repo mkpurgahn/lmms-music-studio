@@ -19,6 +19,8 @@ import { expandPattern, parseChord, voiceChord, bassNote, chordQualities } from 
 import { effectTypes, resolveParams, describeEffects } from './effects.mjs';
 import { createLogger } from './tools/logger.mjs';
 import { runCommandSafe, writeFileAtomic } from './tools/fs-atomic.mjs';
+import { SYNTH_DRUM_VOICES, writeSynthDrumElement } from './tools/drum-kits.mjs';
+import { prepareSf2InstrumentSpec, resolveSf2Path, sf2PathPattern, writeSf2PlayerElement } from './tools/soundfont.mjs';
 import * as workspaceConfig from './tools/workspace-config.mjs';
 import {
   ensureLmmsAsciiPath,
@@ -116,10 +118,14 @@ const presetFile = z.string().regex(/^(?:[\w -]+\/[\w .()!-]+\.xpf|ZynAddSubFX\/
 const volume = z.number().min(0).max(200);
 const track = z.object({
   name: z.string().min(1).max(100),
-  voice: z.enum(['pluck', 'bass', 'pad', 'kick', 'clap', 'hat', 'sample', 'preset'])
-    .describe('pluck, bass and pad are built-in synths; kick, clap and hat are stock one-shots; sample plays a workspace WAV or a stock LMMS sample; preset loads a factory preset.'),
+  voice: z.enum(['pluck', 'bass', 'pad', 'kick', 'snare', 'hat', 'clap', 'sample', 'preset', 'sf2'])
+    .describe('pluck, bass and pad are built-in synths; kick, snare, hat and clap are pure native LMMS drum synths; sf2 plays a SoundFont (.sf2) via native sf2player; sample plays a workspace WAV or a stock LMMS sample; preset loads a factory preset.'),
   sample: workspaceWav.optional(), factorySample: factorySample.optional().describe('Stock LMMS sample such as "drums/snare01.ogg". See list_samples.'),
   preset: presetFile.optional(),
+  sf2: z.string().regex(sf2PathPattern).optional().describe('SoundFont (.sf2) path relative to LMMS_SOUNDFONTS or workspace (required when voice is "sf2"). See list_sf2_presets.'),
+  bank: z.number().int().min(0).max(128).optional().describe('SoundFont MIDI bank (0 melodic, 128 GM drums; default 0).'),
+  patch: z.number().int().min(0).max(127).optional().describe('SoundFont MIDI patch number (0-127; default 0).'),
+  sf2Gain: z.number().min(0.05).max(5).optional().describe('SoundFont player output gain (0.05-5; default 1).'),
   rootMidi: z.number().int().min(12).max(119).default(69),
   role: z.enum(['drums', 'bass', 'harmony', 'lead', 'counter', 'texture', 'fx']).optional()
     .describe('What the track is for. Use one lead at a time and at most one counter-melody.'),
@@ -129,18 +135,6 @@ const track = z.object({
 // What a track is for in the arrangement. Stored on the track so lint, balance and export tools can read it.
 const roleNames = ['drums', 'bass', 'harmony', 'lead', 'counter', 'texture', 'fx'];
 const trackRole = t => roleNames.includes(t.getAttribute('mcp-role')) ? t.getAttribute('mcp-role') : null;
-const kits = {
-  soft: { kick: 'kick_soft01', snare: 'snare01', hat: 'hihat_closed01', clap: 'clap01' },
-  tight: { kick: 'kick01', snare: 'snare02', hat: 'hihat_closed02', clap: 'clap02' },
-  electronic: { kick: 'kick01', snare: 'snare_electro01', hat: 'hihat_closed01', clap: 'clap01' },
-  acoustic: { kick: 'bassdrum_acoustic01', snare: 'snare_acoustic01', hat: 'hihat_opened01', clap: 'clap01' },
-  // Dance-oriented kits using common LMMS factory samples
-  house: { kick: 'kick01', snare: 'snare01', hat: 'hihat_closed01', openhat: 'hihat_opened01', clap: 'clap01' },
-  techno: { kick: 'kick_hard01', snare: 'snare_harsh01', hat: 'hihat_closed03', openhat: 'hihat_opened01', clap: 'clap02' },
-  trance: { kick: 'kick02', snare: 'snare02', hat: 'hihat_closed02', openhat: 'hihat_opened01', clap: 'clap01' },
-  breaks: { kick: 'kick_soft01', snare: 'snare01', hat: 'hihat_closed01', openhat: 'hihat_opened01', clap: 'clap01' },
-};
-const kit = kits.soft; // default for the existing kick/clap/hat voices
 
 const tones = {
   pluck: { waves: [1, 2, 0], gains: [33, 14, 18], cutoff: 3400, sustain: .24, decay: .22, release: .075 },
@@ -251,6 +245,20 @@ async function checkTrack(item) {
     }
   } else if (item.sample || item.factorySample) throw new Error(`Track "${item.name}": sample and factorySample need voice "sample"`);
   if ((item.voice === 'preset') !== Boolean(item.preset)) throw new Error(`Track "${item.name}": voice "preset" and the preset field go together`);
+  if ((item.voice === 'sf2') !== Boolean(item.sf2)) throw new Error(`Track "${item.name}": voice "sf2" and the sf2 field go together`);
+  if (item.voice !== 'sf2' && (item.bank !== undefined || item.patch !== undefined || item.sf2Gain !== undefined)) {
+    throw new Error(`Track "${item.name}": bank, patch and sf2Gain need voice "sf2"`);
+  }
+  if (item.voice === 'sf2') {
+    item._preparedSf2 = await prepareSf2InstrumentSpec({
+      sf2: item.sf2,
+      bank: item.bank ?? 0,
+      patch: item.patch ?? 0,
+      gain: item.sf2Gain ?? 1,
+      root,
+      soundfontsDir: soundfontsDirectory,
+    });
+  }
 }
 export function addTrack(parent, item) {
   const target = add(parent, 'track', { muted: 0, solo: 0, type: 0, name: item.name });
@@ -260,9 +268,18 @@ export function addTrack(parent, item) {
     instrumentTrack.setAttribute('basenote', String(item.rootMidi - 12));
     add(add(instrumentTrack, 'instrument', { name: 'audiofileprocessor' }), 'audiofileprocessor',
       { src: item.sample ? path.join(root, item.sample).replaceAll('\\', '/') : item.factorySample, amp: 100, sframe: 0, eframe: 1, interp: 1 });
-  } else if (item.voice in kit) {
-    add(add(instrumentTrack, 'instrument', { name: 'audiofileprocessor' }), 'audiofileprocessor',
-      { src: 'drums/' + kit[item.voice] + '.ogg', amp: 100, sframe: 0, eframe: 1, interp: 1 });
+  } else if (item.voice === 'sf2') {
+    const sf2Spec = item._preparedSf2 ?? {
+      asciiPath: resolveSf2Path(item.sf2, { root, soundfontsDir: soundfontsDirectory }).fullPath.replaceAll('\\', '/'),
+      bank: item.bank ?? 0,
+      patch: item.patch ?? 0,
+      gain: item.sf2Gain ?? 1,
+      reverb: false,
+      chorus: false,
+    };
+    writeSf2PlayerElement(add, children, instrumentTrack, sf2Spec);
+  } else if (Object.hasOwn(SYNTH_DRUM_VOICES, item.voice)) {
+    writeSynthDrumElement(add, instrumentTrack, SYNTH_DRUM_VOICES[item.voice]);
   } else {
     const tone = tones[item.voice] ?? tones.pluck;
     const oscillator = { modalgo1: 2, modalgo2: 2 };
@@ -370,11 +387,11 @@ tool('get_started', 'Read the LMMS Music Studio MCP workflow and discover the lo
     liveToolsEnabled: process.platform === 'win32' && /^[a-zA-Z0-9_-]+$/.test(process.env.LMMS_LIVE_PIPE ?? ''),
   },
   workflows: {
-    plan: ['resolve_chords', 'search_sounds', 'list_samples', 'preview_sound'],
-    compose: ['create_project', 'inspect_arrangement', 'apply_edits'],
+    plan: ['resolve_chords', 'search_sounds', 'list_sf2_presets', 'list_drum_kits', 'list_samples', 'preview_sound'],
+    compose: ['create_project', 'create_drum_kit', 'set_sf2_instrument', 'inspect_arrangement', 'apply_edits'],
     mix: ['inspect_effects', 'list_effects', 'automate_track', 'render_mix', 'analyze_audio'],
     deliver: ['export_game_audio', 'render_stems', 'export_midi', 'export_one_shots'],
-    external: ['list_external_tools', 'list_soundfonts', 'render_soundfont'],
+    external: ['list_external_tools', 'install_soundfont_pack', 'list_soundfonts', 'render_soundfont'],
   },
 }));
 const declaredBars = items => Math.max(...items.flatMap(item => item.patterns.map(part => part.bar + part.bars)));
@@ -666,19 +683,42 @@ function isolate(doc, keep) {
   return copy;
 }
 async function stageNonAsciiSources(doc) {
-  if (process.platform !== 'win32') return doc;
   for (const tag of ['audiofileprocessor', 'sampletco', 'sf2player']) {
     for (const node of Array.from(doc.getElementsByTagName(tag))) {
       const src = node.getAttribute('src');
-      if (src && hasNonAscii(src) && path.isAbsolute(src) && existsSync(src)) {
+      if (!src) continue;
+      if (process.platform === 'win32' && hasNonAscii(src) && path.isAbsolute(src) && existsSync(src)) {
         const asciiSrc = await ensureLmmsAsciiPath(src);
         node.setAttribute('src', asciiSrc.replaceAll('\\', '/'));
+      } else if (src.includes('\\')) {
+        node.setAttribute('src', src.replaceAll('\\', '/'));
       }
     }
   }
   return doc;
 }
-export async function renderDoc(doc, { loop = true, prepared = false } = {}) {
+function activeSf2TrackIndices(doc) {
+  const { lengthTicks } = songInfo(doc);
+  const indices = [];
+  tracks(doc).forEach((t, idx) => {
+    if (t.getAttribute('type') !== '0' || t.getAttribute('muted') === '1') return;
+    const [instTrack] = children(t, 'instrumenttrack');
+    if (Number(instTrack?.getAttribute('vol') ?? 100) <= 0) return;
+    const [inst] = children(instTrack, 'instrument');
+    if (inst?.getAttribute('name') !== 'sf2player') return;
+    const hasNotes = children(t, 'pattern').some(clip => {
+      if (clip.getAttribute('muted') === '1') return false;
+      const clipPos = Number(clip.getAttribute('pos') || 0);
+      return children(clip, 'note').some(n =>
+        Number(n.getAttribute('len') || 0) > 0 &&
+        Number(n.getAttribute('vol') ?? 100) > 0 &&
+        clipPos + Number(n.getAttribute('pos') || 0) < Math.max(1, lengthTicks));
+    });
+    if (hasNotes) indices.push(idx);
+  });
+  return indices;
+}
+export async function renderDoc(doc, { loop = true, prepared = false, _skipSf2Guard = false } = {}) {
   const copy = await stageNonAsciiSources(prepared ? parse(xml.serializeToString(doc)) : forRender(doc));
   const seconds = renderLimit ?? Math.min(3600, Math.max(180, Math.round(songInfo(doc).lengthSeconds * 10 + 120)));
   const scratchBase = process.platform === 'win32' && hasNonAscii(root)
@@ -689,8 +729,9 @@ export async function renderDoc(doc, { loop = true, prepared = false } = {}) {
   const project = path.join(temp, 'render.mmp'), rendered = path.join(temp, 'render.wav');
   try {
     await writeFileAtomic(project, xml.serializeToString(copy), { overwrite: true });
+    let commandResult;
     try {
-      await runCommandSafe(lmms, ['render', project, '-s', '48000', '-f', 'wav', ...(loop ? ['-l'] : []), '-o', rendered],
+      commandResult = await runCommandSafe(lmms, ['render', project, '-s', '48000', '-f', 'wav', ...(loop ? ['-l'] : []), '-o', rendered],
         { cwd: scratchBase, timeoutMs: seconds * 1000, maxBuffer: 64 * 1024 * 1024 });
     } catch (error) {
       log.error('LMMS render invocation failed', { lmms, timeoutSeconds: seconds, timedOut: Boolean(error.timedOut), code: error.code });
@@ -699,7 +740,31 @@ export async function renderDoc(doc, { loop = true, prepared = false } = {}) {
       }
       throw new Error(error.code === 'ENOENT' ? `LMMS was not found at ${lmms}. Set LMMS_EXECUTABLE.` : 'LMMS render failed: ' + String(error.message).split('\n')[0]);
     }
-    return await readFile(rendered);
+    const sf2LoadFailure = /soundfont[^\r\n]*could not be loaded|failed to load soundfont|not a valid soundfont/i.exec(commandResult.stderr ?? '');
+    if (sf2LoadFailure) {
+      throw new Error(`LMMS failed to load SoundFont: ${sf2LoadFailure[0].trim()}`);
+    }
+    const wav = await readFile(rendered);
+    if (!_skipSf2Guard) {
+      const sf2Indices = activeSf2TrackIndices(copy);
+      if (sf2Indices.length > 0) {
+        const audibleTracks = tracks(copy).filter(t => !isControl(t) && t.getAttribute('muted') !== '1').length;
+        if (measureWav(wav).peakDbfs === null) {
+          const names = sf2Indices.map(i => tracks(copy)[i].getAttribute('name')).join(', ');
+          throw new Error(`Silent SF2 render guard: sf2player track(s) [${names}] rendered absolute zero energy.`);
+        }
+        if (audibleTracks > 1) {
+          await pool(sf2Indices, parallelRenders, async sf2Idx => {
+            const isolatedWav = await renderDoc(isolate(copy, new Set([sf2Idx])), { loop, prepared: true, _skipSf2Guard: true });
+            if (measureWav(isolatedWav).peakDbfs === null) {
+              const name = tracks(copy)[sf2Idx].getAttribute('name');
+              throw new Error(`Silent SF2 render guard: isolated sf2player track "${name}" rendered absolute zero energy.`);
+            }
+          });
+        }
+      }
+    }
+    return wav;
   } finally {
     const cleanup = await Promise.allSettled([
       rm(rendered, { force: true }),
@@ -819,12 +884,58 @@ export function measureWav(wav) {
     peakDbfs: level(peak), rmsDbfs: level(Math.sqrt(sumSquares / (samples.length / 2))),
     fullScaleSamples, boundaryJumpDbfs: level(boundaryJump) };
 }
-const tailMode = z.enum(['cut', 'wrap', 'keep']).default('cut')
-  .describe('cut: stop at the last bar (default). wrap: fold the reverb and delay tail back onto the start for a seamless loop. keep: let the tail ring out (one extra bar).');
+const tailMode = z.enum(['cut', 'wrap', 'keep', 'ring']).default('cut')
+  .describe('cut: stop at the last bar (default). wrap: fold the reverb and delay tail back onto the start for a seamless loop. keep: let the tail ring out (one extra bar). ring: render extra ringSeconds, detect the last active frame above -72 dBFS (+0.15s margin/fade), and trim master and stems to the exact same frame count.');
+const ringSecondsSchema = z.number().min(0.5).max(20).default(5)
+  .describe('Maximum extra seconds to let instrument and effect tails ring out when tail is "ring" (0.5-20, default 5).');
 const loudnessTarget = z.number().min(-36).max(-6).optional().describe('Integrated loudness target in LUFS, for example -16 for game music.');
 const ceilingTarget = z.number().min(-12).max(0).optional().describe('True-peak ceiling in dBTP for the built-in limiter, measured with 4x oversampling so inter-sample peaks stay under it (default -1 when a loudness target is set).');
-export async function renderMix(doc, { tail = 'cut', targetLufs, ceilingDb } = {}) {
+
+const RING_THRESHOLD_LINEAR = 10 ** (-72 / 20);
+const RING_MARGIN_SECONDS = 0.15;
+
+export function computeRingTrim(masterAudio, naturalFrames, ringSeconds = 5) {
+  const maxFrames = Math.min(masterAudio.frames, naturalFrames + Math.round(ringSeconds * masterAudio.sampleRate));
+  let lastActiveFrame = 0;
+  for (let i = maxFrames - 1; i >= 0; i--) {
+    let active = false;
+    for (const ch of masterAudio.channels) {
+      if (Math.abs(ch[i]) > RING_THRESHOLD_LINEAR) {
+        active = true;
+        break;
+      }
+    }
+    if (active) {
+      lastActiveFrame = i + 1;
+      break;
+    }
+  }
+  const marginFrames = Math.round(RING_MARGIN_SECONDS * masterAudio.sampleRate);
+  const rawTarget = lastActiveFrame > 0 ? lastActiveFrame + marginFrames : naturalFrames;
+  const targetFrames = Math.max(naturalFrames, Math.min(maxFrames, rawTarget));
+  const fadeFrames = targetFrames > naturalFrames ? Math.min(marginFrames, targetFrames - naturalFrames) : 0;
+  return { targetFrames, fadeFrames, lastActiveFrame };
+}
+
+function applyRingTrim(audio, targetFrames, fadeFrames) {
+  const fitted = dsp.fitLength(audio, targetFrames);
+  return fadeFrames > 0 ? dsp.fade(fitted, 0, fadeFrames) : fitted;
+}
+
+export async function renderMix(doc, { tail = 'cut', ringSeconds = 5, targetLufs, ceilingDb } = {}) {
   const info = songInfo(doc);
+  if (tail === 'ring') {
+    const extraBars = Math.max(1, Math.ceil(ringSeconds / info.secondsPerBar));
+    const extended = forRender(doc);
+    setAnchor(extended, info.lengthBars + extraBars);
+    const raw = await renderDoc(extended, { loop: false, prepared: true });
+    const fullAudio = dsp.decodeWav(raw);
+    const naturalFrames = Math.round(info.lengthSeconds * fullAudio.sampleRate);
+    const { targetFrames, fadeFrames } = computeRingTrim(fullAudio, naturalFrames, ringSeconds);
+    const audio = applyRingTrim(fullAudio, targetFrames, fadeFrames);
+    const mastering = masterAudio(audio, { targetLufs, ceilingDb, wrap: false });
+    return { wav: dsp.encodeWav(audio), audio, info, mastering, targetFrames };
+  }
   const raw = await renderDoc(doc, { loop: tail === 'cut' });
   if (tail === 'cut' && targetLufs === undefined && ceilingDb === undefined) return { wav: raw, audio: null, info };
   let audio = dsp.decodeWav(raw);
@@ -832,29 +943,33 @@ export async function renderMix(doc, { tail = 'cut', targetLufs, ceilingDb } = {
   const mastering = masterAudio(audio, { targetLufs, ceilingDb, wrap: tail === 'wrap' });
   return { wav: dsp.encodeWav(audio), audio, info, mastering };
 }
-tool('render_mix', 'Render the song to a 48 kHz WAV or OGG and report duration, peak, RMS, loudness, clipped samples and the loop boundary jump. Honours solo. Optional loop-safe tail and loudness mastering.', {
-  project: projectName, output: audioOut, tail: tailMode, targetLufs: loudnessTarget, ceilingDb: ceilingTarget,
-}, async ({ project, output, tail, targetLufs, ceilingDb }) => {
+tool('render_mix', 'Render the song to a 48 kHz WAV or OGG and report duration, peak, RMS, loudness, clipped samples and the loop boundary jump. Honours solo. Optional loop-safe or ring-out tail and loudness mastering.', {
+  project: projectName, output: audioOut, tail: tailMode, ringSeconds: ringSecondsSchema, targetLufs: loudnessTarget, ceilingDb: ceilingTarget,
+}, async ({ project, output, tail, ringSeconds, targetLufs, ceilingDb }) => {
   if (existsSync(path.join(root, output))) throw new Error('Output already exists');
   const doc = await load(project);
-  const { wav, audio, info, mastering } = await renderMix(doc, { tail, targetLufs, ceilingDb });
+  const { wav, audio, info, mastering } = await renderMix(doc, { tail, ringSeconds, targetLufs, ceilingDb });
   await writeAudio(path.join(root, output), wav);
   const decoded = audio ?? dsp.decodeWav(wav);
   const stats = measureWav(wav);
   const expected = info.lengthSeconds + (tail === 'keep' ? info.secondsPerBar : 0);
   const warnings = [];
   if (stats.fullScaleSamples) warnings.push(`${stats.fullScaleSamples} samples clip. Lower track or master volume, or pass targetLufs or ceilingDb.`);
-  if (Math.abs(stats.durationSeconds - expected) > 0.05) warnings.push(`Rendered ${stats.durationSeconds.toFixed(3)} s but the arrangement reads as ${expected.toFixed(3)} s.`);
-  return { audio: output, bytes: wav.length, ...stats, bars: info.lengthBars, tail,
+  if (tail !== 'ring' && Math.abs(stats.durationSeconds - expected) > 0.05) {
+    warnings.push(`Rendered ${stats.durationSeconds.toFixed(3)} s but the arrangement reads as ${expected.toFixed(3)} s.`);
+  }
+  return { audio: output, bytes: wav.length, frames: decoded.frames, ...stats, bars: info.lengthBars, tail,
+    ...(tail === 'ring' ? { ringSeconds, tailSeconds: Number((stats.durationSeconds - info.lengthSeconds).toFixed(4)) } : {}),
     integratedLufs: dsp.loudness(decoded).integratedLufs, truePeakDbfs: dsp.db(dsp.truePeak(decoded)),
     ...(mastering ? { mastering } : {}), ...(warnings.length ? { warnings } : {}) };
 });
 const safeFile = name => name.replace(/[^a-z0-9 _-]+/gi, '_').trim() || 'track';
-tool('render_stems', 'Render one WAV per instrument, sample or Beat/Bassline track, all aligned to the mix length. Works for full-length songs; renders run in parallel.', {
+tool('render_stems', 'Render one WAV per instrument, sample or Beat/Bassline track, all sample-aligned to the exact same frame count as render_mix (including tail: "ring"). Works for full-length songs; renders run in parallel.', {
   project: projectName, outputDirectory: folderName,
   tracks: z.array(z.string()).min(1).optional().describe('Only these track names (default: every unmuted audio track).'),
-  tail: z.enum(['cut', 'wrap']).default('cut'),
-}, async ({ project, outputDirectory, tracks: names, tail }) => {
+  tail: tailMode,
+  ringSeconds: ringSecondsSchema,
+}, async ({ project, outputDirectory, tracks: names, tail, ringSeconds }) => {
   const doc = await load(project);
   const info = songInfo(doc);
   const all = tracks(doc);
@@ -865,16 +980,43 @@ tool('render_stems', 'Render one WAV per instrument, sample or Beat/Bassline tra
   const output = path.join(root, outputDirectory);
   await mkdir(output);
   try {
-    const frames = Math.round(info.lengthSeconds * 48000);
+    const naturalFrames = Math.round(info.lengthSeconds * 48000);
+    if (tail === 'ring') {
+      const extraBars = Math.max(1, Math.ceil(ringSeconds / info.secondsPerBar));
+      const extendedDoc = parse(xml.serializeToString(doc));
+      setAnchor(extendedDoc, info.lengthBars + extraBars);
+      const renderedAudios = await pool([null, ...wanted], parallelRenders, async item => {
+        const renderTarget = item === null ? forRender(extendedDoc) : isolate(extendedDoc, new Set([item.index]));
+        return dsp.decodeWav(await renderDoc(renderTarget, { loop: false, prepared: true }));
+      });
+      const [masterAudio, ...stemAudios] = renderedAudios;
+      const { targetFrames, fadeFrames } = computeRingTrim(masterAudio, naturalFrames, ringSeconds);
+      const stems = [];
+      for (let i = 0; i < wanted.length; i++) {
+        const { t, index } = wanted[i];
+        const trimmed = applyRingTrim(stemAudios[i], targetFrames, fadeFrames);
+        const file = `${index + 1}_${safeFile(t.getAttribute('name'))}.wav`;
+        const wav = dsp.encodeWav(trimmed);
+        await writeFileAtomic(path.join(output, file), wav, { overwrite: false });
+        stems.push({ file, track: t.getAttribute('name'), frames: trimmed.frames, ...measureWav(wav) });
+      }
+      return { directory: outputDirectory, bars: info.lengthBars, tail, ringSeconds, frames: targetFrames, stems };
+    }
+
+    const targetFrames = tail === 'keep'
+      ? Math.round((info.lengthSeconds + info.secondsPerBar) * 48000)
+      : naturalFrames;
     const stems = await pool(wanted, parallelRenders, async ({ t, index }) => {
       let audio = dsp.decodeWav(await renderDoc(isolate(doc, new Set([index])), { loop: tail === 'cut', prepared: true }));
-      audio = tail === 'wrap' ? dsp.foldTail(dsp.fitLength(audio, frames + barFrames(info, audio.sampleRate)), frames) : dsp.fitLength(audio, frames);
+      audio = tail === 'wrap'
+        ? dsp.foldTail(dsp.fitLength(audio, naturalFrames + barFrames(info, audio.sampleRate)), naturalFrames)
+        : dsp.fitLength(audio, targetFrames);
       const file = `${index + 1}_${safeFile(t.getAttribute('name'))}.wav`;
       const wav = dsp.encodeWav(audio);
       await writeFileAtomic(path.join(output, file), wav, { overwrite: false });
-      return { file, track: t.getAttribute('name'), ...measureWav(wav) };
+      return { file, track: t.getAttribute('name'), frames: audio.frames, ...measureWav(wav) };
     });
-    return { directory: outputDirectory, bars: info.lengthBars, stems };
+    return { directory: outputDirectory, bars: info.lengthBars, tail, frames: targetFrames, stems };
   } catch (error) {
     await Promise.allSettled([rm(output, { recursive: true, force: true })]); // created by this call
     throw new Error('Stem render failed and its folder was removed: ' + error.message);
@@ -943,49 +1085,6 @@ tool('list_samples', 'Browse the stock LMMS sample library (drums, basses, instr
     tokens.every(token => name.toLowerCase().includes(token))).sort();
   return { groups, total: matches.length, samples: matches.slice(0, limit) };
 });
-tool('list_drum_kits', 'List available stock drum kits built from LMMS factory samples. Each kit provides kick, snare, hat and clap paths.', {}, async () => {
-  const available = {};
-  for (const [name, pieces] of Object.entries(kits)) {
-    available[name] = {};
-    for (const [piece, file] of Object.entries(pieces)) {
-      const full = path.join(samplesDirectory, 'drums', file + '.ogg');
-      available[name][piece] = existsSync(full) ? `drums/${file}.ogg` : null;
-    }
-  }
-  return { kits: available, licence: 'GPL-2.0-or-later', publishable: false,
-    note: 'Stock kits are for local use. Use create_drum_kit or pass the factorySample paths to create_project with voice "sample".' };
-});
-
-tool('create_drum_kit', 'Create a new LMMS project containing a ready-to-use drum kit (separate tracks for kick, snare, hat, clap). Patterns are empty so the agent can fill them with step grids or notes.', {
-  output: projectName,
-  kit: z.enum(Object.keys(kits)).default('soft'),
-  bpm: z.number().min(45).max(240).default(120),
-  lengthBars: z.number().int().min(1).max(64).default(8),
-  masterVolume: volume.default(86),
-}, async ({ output, kit: kitName, bpm, lengthBars, masterVolume }) => {
-  const chosen = kits[kitName];
-  const items = [];
-  const volumes = { kick: 92, snare: 78, hat: 62, openhat: 58, clap: 70 };
-  const pans = { hat: 22, openhat: -18, clap: 8 };
-  for (const [piece, file] of Object.entries(chosen)) {
-    items.push({
-      name: piece,
-      voice: 'sample',
-      factorySample: `drums/${file}.ogg`,
-      role: 'drums',
-      volume: volumes[piece] ?? 70,
-      pan: pans[piece] ?? 0,
-      patterns: [],
-    });
-  }
-  for (const item of items) await checkTrack(item);
-  const doc = createSong(bpm, items, masterVolume);
-  for (const track of tracks(doc)) addPatternClip(track, { name: track.getAttribute('name'), bar: 0, bars: lengthBars });
-  if (lengthBars > songInfo(doc).lengthBars) setAnchor(doc, lengthBars);
-  return { ...(await save(doc, output)), kit: kitName, tracks: items.map(item => item.name), lengthBars,
-    licence: 'GPL-2.0-or-later', publishable: false };
-});
-
 
 // Measured facts about factory sounds: level, tuning, envelope and brightness. A copy for stock LMMS 1.2.2 ships
 // with the server; build_sound_catalogue adds or refreshes entries in the workspace.
@@ -1202,7 +1301,7 @@ tool('list_instruments', 'Discover what this installation can play: built-in voi
   const [plugins, factoryPresets, zyn] = await Promise.allSettled([installedInstrumentIds(), listPresets(), listZynPresets()]);
   const worklet = process.env.LMMS_FATHOM_WORKLET;
   return {
-    builtInVoices: [...Object.keys(tones), ...Object.keys(kit), 'sample', 'preset'],
+    builtInVoices: [...Object.keys(tones), ...Object.keys(SYNTH_DRUM_VOICES), 'sample', 'preset', 'sf2'],
     nativePlugins: (plugins.value ?? []).map(id => ({ id, family: instruments[id] })),
     pluginScan: plugins.status === 'fulfilled' ? pluginDirectory : { directory: pluginDirectory, error: plugins.reason.code },
     factoryPresets: factoryPresets.value ?? [],

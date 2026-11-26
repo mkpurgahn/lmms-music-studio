@@ -1,4 +1,4 @@
-# Fetch open SFZ sample libraries for the Decent Sampler route (see docs/sampler.md).
+# Fetch open sample libraries for LMMS Music Studio.
 # Uses git sparse checkout from github.com/sfzinstruments, so only the files each instrument needs are downloaded (about 1.1 GB with the default piano).
 #   Piano   SalamanderGrandPiano   CC BY 3.0, credit Alexander Holm; Yamaha C5, 16 velocity layers, about 720 MB
 #   Splendid SplendidGrandPiano    public domain; Steinway, 4 velocity layers, a smaller alternative (not fetched by default)
@@ -8,7 +8,7 @@
 # Read each library's LICENSE and README before you release anything made with it.
 # Usage: ./setup-libraries-windows.ps1 [-Destination <folder>] [-Only piano,splendid,bass,sax,drums]
 param(
-    [string]$Destination = (Join-Path $env:LOCALAPPDATA 'lmms-mcp/libraries'),
+    [string]$Destination = (Join-Path $env:LOCALAPPDATA 'lmms-music-studio/libraries'),
     [ValidateSet('piano', 'splendid', 'bass', 'sax', 'drums')][string[]]$Only = @('piano', 'bass', 'sax', 'drums')
 )
 $ErrorActionPreference = 'Stop'
@@ -36,4 +36,4 @@ foreach ($name in $Only) {
     $size = (Get-ChildItem $folder -Recurse -File -Force | Where-Object { $_.FullName -notmatch '\\\.git\\' } | Measure-Object Length -Sum).Sum
     Write-Output ('{0}: {1:N0} MB in {2}' -f $library.Repo, ($size / 1MB), $folder)
 }
-Write-Output "Set LMMS_SAMPLE_LIBRARIES to $Destination, then call convert_sfz on each library's .sfz file."
+Write-Output "Sample libraries ready in $Destination (mounted automatically by library-server.mjs or via LMMS_SAMPLE_LIBRARIES)."

@@ -1,11 +1,9 @@
 // SoundFont rendering via FluidSynth. Renders a MIDI file through a .sf2/.sf3 to a workspace WAV.
-import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { lstat, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
-
-const run = promisify(execFile);
+import { runCommandSafe } from './fs-atomic.mjs';
+import { resolveSoundfontsDir } from './workspace-config.mjs';
 
 export function fluidsynthArgs({ midi, soundfont, output, gain = 0.8, sampleRate = 48000, reverb = false, chorus = false, bank, preset }) {
   const args = [
@@ -20,8 +18,9 @@ export function fluidsynthArgs({ midi, soundfont, output, gain = 0.8, sampleRate
   return args;
 }
 
-export function register({ tool, z, root, moduleGuidance }) {
+export function register({ tool, z, root, paths, moduleGuidance }) {
   moduleGuidance.push('For SoundFont instruments, set LMMS_FLUIDSYNTH (or have fluidsynth on PATH) and call render_soundfont with a workspace MIDI and an .sf2/.sf3. See docs/soundfont.md.');
+  const getSoundfontsDir = () => paths?.soundfonts ?? resolveSoundfontsDir(process.env);
 
   tool('list_soundfonts', 'List .sf2 and .sf3 files visible to render_soundfont (workspace and LMMS_SOUNDFONTS, recursive).', {}, async () => {
     const { readdir } = await import('node:fs/promises');
@@ -34,16 +33,17 @@ export function register({ tool, z, root, moduleGuidance }) {
         else if (entry.isFile() && /\.sf[23]$/i.test(entry.name)) found.push({ path: rel, location: label });
       }
     };
+    const sfDir = getSoundfontsDir();
     await scan(root, 'workspace');
-    await scan(process.env.LMMS_SOUNDFONTS, 'LMMS_SOUNDFONTS');
-    return { soundfonts: found, note: found.length ? 'Pass the path to render_soundfont.' : 'No SoundFonts found. Place .sf2/.sf3 files in the workspace or set LMMS_SOUNDFONTS.' };
+    await scan(sfDir, 'LMMS_SOUNDFONTS');
+    return { soundfonts: found, soundfontsDirectory: sfDir, note: found.length ? 'Pass the path to render_soundfont.' : 'No SoundFonts found. Place .sf2/.sf3 files in the workspace or under LMMS_SOUNDFONTS.' };
   });
 
   tool('render_soundfont', 'Render a MIDI file through a SoundFont (.sf2 or .sf3) using FluidSynth. Writes a WAV into the workspace. Requires fluidsynth on PATH or LMMS_FLUIDSYNTH. Optional bank and preset select the instrument.', {
     midi: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,79}\.mid$/i).describe('MIDI file in the workspace.'),
-    soundfont: z.string().min(5).max(400).regex(/\.sf[23]$/i).describe('Path to the .sf2 or .sf3. Absolute, or relative to the workspace, or relative to LMMS_SOUNDFONTS if set.'),
+    soundfont: z.string().min(5).max(400).regex(/\.sf[23]$/i).describe('Path to the .sf2 or .sf3. Relative to the workspace or LMMS_SOUNDFONTS.'),
     output: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,79}\.wav$/i).describe('Output WAV name in the workspace.'),
-    gain: z.number().min(0.1).max(2).default(0.8).describe('FluidSynth gain (0.1–2).'),
+    gain: z.number().min(0.1).max(2).default(0.8).describe('FluidSynth gain (0.1-2).'),
     sampleRate: z.number().int().min(22050).max(96000).default(48000),
     reverb: z.boolean().default(false),
     chorus: z.boolean().default(false),
@@ -55,12 +55,13 @@ export function register({ tool, z, root, moduleGuidance }) {
     const midiPath = path.join(root, midi);
     if (!(await lstat(midiPath).catch(() => null))?.isFile()) throw new Error(`MIDI file not found in workspace: ${midi}`);
 
+    const sfDir = getSoundfontsDir();
     const resolveSoundfont = relative => {
       if (path.isAbsolute(relative) || relative.split(/[\\/]/).includes('..')) throw new Error('Give the SoundFont relative to the workspace or LMMS_SOUNDFONTS, without .. or absolute paths.');
       const inWorkspace = path.resolve(root, relative);
-      const inLibrary = process.env.LMMS_SOUNDFONTS ? path.resolve(process.env.LMMS_SOUNDFONTS, relative) : null;
+      const inLibrary = sfDir ? path.resolve(sfDir, relative) : null;
       if (existsSync(inWorkspace) && path.relative(root, inWorkspace).startsWith('..') === false) return inWorkspace;
-      if (inLibrary && existsSync(inLibrary) && !path.relative(process.env.LMMS_SOUNDFONTS, inLibrary).startsWith('..')) return inLibrary;
+      if (inLibrary && existsSync(inLibrary) && !path.relative(sfDir, inLibrary).startsWith('..')) return inLibrary;
       throw new Error(`SoundFont not found: ${relative}. Place it in the workspace or under LMMS_SOUNDFONTS.`);
     };
     const sfPath = resolveSoundfont(soundfont);
@@ -71,9 +72,9 @@ export function register({ tool, z, root, moduleGuidance }) {
 
     const args = fluidsynthArgs({ midi: midiPath, soundfont: sfPath, output: outPath, gain, sampleRate, reverb, chorus, bank, preset });
     try {
-      await run(fluidsynth, args, { timeout: timeoutSeconds * 1000, windowsHide: true });
+      await runCommandSafe(fluidsynth, args, { timeoutMs: timeoutSeconds * 1000 });
     } catch (error) {
-      await rm(outPath, { force: true });
+      await Promise.allSettled([rm(outPath, { force: true })]);
       if (error.code === 'ENOENT') throw new Error(`FluidSynth not found (${fluidsynth}). Install it or set LMMS_FLUIDSYNTH.`);
       throw new Error('FluidSynth failed: ' + (error.stderr || error.message).toString().trim().split(/\r?\n/).slice(-3).join(' | '));
     }

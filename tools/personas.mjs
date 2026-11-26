@@ -2,7 +2,6 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { composerProfiles } from '../composers.mjs';
 
 const text = z.string().trim().min(1);
 const texts = z.array(text);
@@ -69,10 +68,20 @@ export const personaSchema = z.strictObject({
 
 const folder = fileURLToPath(new URL('../personas/', import.meta.url));
 const normalise = value => value.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
-// Use the named studies as the initial denylist so persona data cannot reuse those aliases.
-const denied = Object.values(composerProfiles).flatMap(({ name, reference }) =>
-  name.includes(' — ') ? [reference, name.split(' — ')[0]] : [reference]
-).map(normalise);
+export const deniedArtistReferences = [
+  'Edvard Grieg', 'Grieg',
+  'Erik Satie', 'Satie',
+  'Nikolai Rimsky-Korsakov', 'Rimsky-Korsakov',
+  'George Frideric Handel', 'Handel',
+  'Claude Debussy', 'Debussy',
+  'Johann Sebastian Bach', 'Bach',
+  'Ludwig van Beethoven', 'Beethoven',
+  'Wolfgang Amadeus Mozart', 'Mozart',
+  'Nobuo Uematsu',
+  'Philip Glass',
+  'Gustav Holst', 'Holst',
+];
+const denied = deniedArtistReferences.map(normalise);
 
 function checkText(value, field) {
   if (typeof value === 'string') {

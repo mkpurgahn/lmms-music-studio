@@ -1,11 +1,12 @@
 // Library browser: one self-contained HTML page listing every sound the server can reach, with filters, search and
-// one-click listening. Covers the measured factory presets, stock LMMS samples, workspace samples, the sample
-// libraries under LMMS_SAMPLE_LIBRARIES and, when the phrase library is installed, its phrases.
+// one-click listening. Covers the measured factory presets, stock LMMS samples, workspace samples, and sample
+// libraries under LMMS_SAMPLE_LIBRARIES.
 import { existsSync } from 'node:fs';
-import { readdir, readFile, writeFile, lstat, mkdir, rm } from 'node:fs/promises';
+import { readdir, readFile, lstat, mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { workspaceMeta, applyMeta, audioSeconds, baseOf, facets } from './sound-meta.mjs';
+import { writeFileAtomic } from './fs-atomic.mjs';
 
 const audioFile = /\.(ogg|wav|flac|mp3)$/i;
 // What a sample probably is, from the words in its path. First match wins.
@@ -85,22 +86,6 @@ export function presetItems(facts) {
     const parts = file.split('/');
     return { t: 'preset', n: displayName(file).replace(/^\d+\s*/, ''), p: file, s: parts[0], c: parts.length > 2 ? parts[1] : '', r: m.role, g: m.tags ?? [], u: null,
       m: [Math.round(m.centroidHz), Math.round(m.attackMs), Math.round(m.sustainDb), Math.round(m.releaseMs), m.pitched ? 1 : 0] };
-  });
-}
-// Phrases as items, each with a small drawing: one row per drum sound, or a piano roll over one plain chord.
-export function phraseItems(phrases, { summarise, renderPitched, phraseVoices, spans }) {
-  return phrases.map(phrase => {
-    const info = summarise(phrase), bars = phrase.bars ?? 1, perBar = phrase.stepsPerBar ?? 16;
-    const item = { t: 'phrase', n: phrase.name, p: phrase.id, s: info.source === 'yours' ? 'Your phrases' : 'Shipped phrases', c: phrase.kind, r: phrase.role ?? 'progression',
-      g: [...(phrase.styles ?? []), ...(phrase.instrument ? [phrase.instrument] : [])], u: null, d: phrase.description ?? '', k: info.rating, x: info.uses };
-    try {
-      if (phrase.kind === 'rhythm') item.v = { steps: bars * perBar, perBar, rows: phraseVoices(phrase).map(v => [v.sound, v.grid]) };
-      else if (phrase.kind === 'harmonic') {
-        const notes = renderPitched(phrase, { spans: spans(bars), bars, key: { tonic: 9, scale: [0, 2, 3, 5, 7, 8, 10] }, octave: 4 });
-        item.v = { steps: bars * perBar, perBar, roll: notes.map(n => [Number((n.tick / (192 / perBar)).toFixed(2)), Number((n.length / (192 / perBar)).toFixed(2)), n.midi]) };
-      } else item.v = { roman: phrase.roman, mode: phrase.mode ?? 'major' };
-    } catch { /* a phrase that cannot be drawn is still listed */ }
-    return item;
   });
 }
 
@@ -312,11 +297,11 @@ refresh(true);
 }
 
 export function register({ tool, z, dsp, root, schemas, project, render, sounds, paths, moduleGuidance }) {
-  moduleGuidance.push('When a person wants to see or hear what sounds are available, call build_library_page and give them the page: it lists every preset, sample, library file and phrase with filters, search and one-click listening, and they can star picks and paste them back.');
-  tool('build_library_page', 'Write one self-contained HTML page that shows the whole sound library with filters: the measured factory presets, stock LMMS samples, workspace samples, files in LMMS_SAMPLE_LIBRARIES and library phrases. Workspace renders tagged with tag_sound are listed as finished pieces with filters for composer, era, genre, mood, game use, arrangement and licence, their credits and their source note (<name>.source.md); untagged files are listed as before. Search, filter by type, source, role and tag, sort, click or use the arrow keys to listen, star picks and copy them as JSON. Samples play straight from disk; presets and phrases are listed with measurements and drawings but have no audio.', {
+  moduleGuidance.push('When a person wants to see or hear what sounds are available, call build_library_page and give them the page: it lists every preset, sample and library file with filters, search and one-click listening, and they can star picks and paste them back.');
+  tool('build_library_page', 'Write one self-contained HTML page that shows the whole sound library with filters: the measured factory presets, stock LMMS samples, workspace samples and files in LMMS_SAMPLE_LIBRARIES. Workspace renders tagged with tag_sound are listed as finished pieces with filters for composer, era, genre, mood, game use, arrangement and licence, their credits and their source note (<name>.source.md); untagged files are listed as before. Search, filter by type, source, role and tag, sort, click or use the arrow keys to listen, star picks and copy them as JSON.', {
     output: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,79}\.html$/i).default('sound-library.html'),
     title: z.string().min(1).max(80).default('Sound library'),
-    include: z.array(z.enum(['presets', 'stock', 'workspace', 'libraries', 'phrases'])).min(1).default(['presets', 'stock', 'workspace', 'libraries', 'phrases']),
+    include: z.array(z.enum(['presets', 'stock', 'workspace', 'libraries'])).min(1).default(['presets', 'stock', 'workspace', 'libraries']),
     overwrite: z.boolean().default(false),
   }, async ({ output, title, include, overwrite }) => {
     const target = path.join(root, output);
@@ -374,36 +359,27 @@ export function register({ tool, z, dsp, root, schemas, project, render, sounds,
       }
       add('libraries', list);
     }
-    if (include.includes('phrases')) {
-      try {
-        const phraseModule = new URL('./phrases.mjs', import.meta.url);
-        const lib = await import(phraseModule.href);
-        const store = lib.readStore(await readFile(path.join(root, lib.storeFile), 'utf8').catch(() => null));
-        add('phrases', phraseItems(lib.allPhrases(store), { summarise: p => lib.summarise(p, store), renderPitched: lib.renderPitched, phraseVoices: lib.phraseVoices,
-          spans: bars => Array.from({ length: bars }, (_, i) => ({ symbol: 'Am', tick: i * 192, ticks: 192 })) }));
-      } catch { notes.push('The phrase library is not installed, so phrases are not listed.'); }
-    }
-    // Presets and phrases play the clip build_library_previews made for them, when there is one.
+    // Presets play the clip build_library_previews made for them, when there is one.
     const made = new Set((await readdir(path.join(root, previewFolder)).catch(() => [])));
     let withPreview = 0, without = 0;
-    for (const item of items.filter(i => i.t === 'preset' || i.t === 'phrase')) {
+    for (const item of items.filter(i => i.t === 'preset')) {
       const base = previewName(item.t, item.p), found = ['.ogg', '.wav'].map(ext => base + ext).find(name => made.has(name));
       if (found) { item.u = previewFolder + '/' + found; withPreview++; } else without++;
     }
     if (without) notes[notes.indexOf('Synth presets have measurements but no audio preview.')] = undefined;
-    if (without) notes.push(`${without} presets and phrases have no audio preview yet. Run build_library_previews to make them.`);
+    if (without) notes.push(`${without} presets have no audio preview yet. Run build_library_previews to make them.`);
     else if (withPreview) notes.splice(notes.indexOf('Synth presets have measurements but no audio preview.'), 1);
     for (let i = notes.length - 1; i >= 0; i--) if (notes[i] === undefined) notes.splice(i, 1);
     if (!items.length) throw new Error('Nothing to list. Check LMMS_SAMPLE_LIBRARIES and the LMMS install.');
     const html = browserHtml({ title, items, generated: new Date().toISOString().slice(0, 10), notes });
-    await writeFile(target, html, { flag: overwrite ? 'w' : 'wx' });
+    await writeFileAtomic(target, html, { overwrite });
     const info = await lstat(target);
     return { page: output, path: target, url: fileUrl(target), bytes: info.size, items: items.length, counts, notes,
-      next: 'Run "node library-server.mjs" from the server folder (with the same LMMS_WORKSPACE and LMMS_SAMPLE_LIBRARIES) and open the address it prints: browsers block a page on disk from playing files in other folders. Paste "Copy my picks" back to choose sounds.' };
+      next: 'Run "node library-server.mjs" from the server folder and open http://127.0.0.1:18290/sound-library.html: browsers block a page on disk from playing files in other folders. Paste "Copy my picks" back to choose sounds.' };
   });
 
-  tool('build_library_previews', 'Render a short audio clip for factory presets and library phrases so the library page can play them. Presets play a four-note figure; pitched phrases play over Am G F E with a plain synth, drum phrases with their own samples, progressions as held chords. Clips are trimmed, set to the same peak level and written to the library-previews folder. Work is done in batches: call again until remaining is 0, then rebuild the page with build_library_page.', {
-    include: z.array(z.enum(['presets', 'phrases'])).min(1).default(['presets', 'phrases']),
+  tool('build_library_previews', 'Render a short audio clip for factory presets so the library page can play them. Presets play a four-note figure. Clips are trimmed, set to the same peak level and written to the library-previews folder. Work is done in batches: call again until remaining is 0, then rebuild the page with build_library_page.', {
+    include: z.array(z.enum(['presets'])).min(1).default(['presets']),
     limit: z.number().int().min(1).max(400).default(120).describe('How many clips to render in this call.'),
     redo: z.boolean().default(false).describe('Render again even when a clip exists.'),
   }, async ({ include, limit, redo }) => {
@@ -411,43 +387,16 @@ export function register({ tool, z, dsp, root, schemas, project, render, sounds,
     await mkdir(folder, { recursive: true });
     const jobs = [];
     if (include.includes('presets')) for (const preset of Object.keys(await sounds.soundFacts())) jobs.push({ type: 'preset', id: preset });
-    let lib = null, store = null;
-    if (include.includes('phrases')) {
-      try {
-        lib = await import(new URL('./phrases.mjs', import.meta.url).href);
-        store = lib.readStore(await readFile(path.join(root, lib.storeFile), 'utf8').catch(() => null));
-        for (const phrase of lib.allPhrases(store)) jobs.push({ type: 'phrase', id: phrase.id, phrase });
-      } catch { /* no phrase library installed */ }
-    }
     const have = new Set(await readdir(folder));
     const skipFile = path.join(folder, 'skipped.json');
     const skipped = redo ? [] : JSON.parse(await readFile(skipFile, 'utf8').catch(() => '[]'));
     const given = new Set(skipped.map(f => f.type + ':' + f.id));
     const todo = jobs.filter(job => redo || (!given.has(job.type + ':' + job.id) && !['.ogg', '.wav'].some(e => have.has(previewName(job.type, job.id) + e))));
     const batch = todo.slice(0, limit), failed = [];
-    const drumSound = async name => {
-      const base = lib.soundDefaults[name];
-      if (!base) return null;
-      const local = base.library && existsSync(path.join(root, 'latin-perc', base.library));
-      return { ...(local ? { sample: 'latin-perc/' + base.library } : { factorySample: base.stock }), midi: local ? 69 : base.stockMidi ?? 69, volume: base.volume ?? 50, length: base.length ?? 48 };
-    };
     const songFor = async job => {
-      if (job.type === 'preset') {
-        const item = { name: 'Preview', voice: 'preset', preset: job.id, rootMidi: 69, volume: 45, pan: 0,
-          patterns: [{ name: 'Preview', bar: 0, bars: 2, notes: [0, 7, 12, 3].map((offset, i) => ({ tick: i * 36, midi: 57 + offset, length: 29, velocity: 76 })) }] };
-        return { bpm: 120, bars: 2, items: [item] };
-      }
-      const phrase = job.phrase, key = { tonic: 9, scale: [0, 2, 3, 5, 7, 8, 10], name: 'A minor', mode: 'minor', flats: false };
-      if (phrase.kind === 'progression') {
-        const chords = lib.progressionIn(phrase, phrase.mode === 'major' ? 'C major' : `A ${phrase.mode ?? 'minor'}`), count = chords.split(' ').length;
-        return { bpm: 120, bars: count + 1, items: [{ name: 'Preview', voice: 'pluck', role: 'harmony', volume: 60, pan: 0, rootMidi: 69,
-          patterns: [{ name: 'Preview', bar: 0, bars: count, chords: { progression: chords, style: 'block' } }] }] };
-      }
-      const bars = Math.max(2, (phrase.bars ?? 1) * 2), sounds = {};
-      if (phrase.kind === 'rhythm') for (const name of Object.keys(phrase.voices)) sounds[name] = await drumSound(name);
-      const sections = lib.layoutSections([{ name: 'Preview', bars }], { key, progression: 'Am G F E', lookup: id => lib.findPhrase(store, id) });
-      const built = lib.buildTracks({ parts: [{ phrase: phrase.id }], sections, key, sounds, lookup: id => lib.findPhrase(store, id) });
-      return { bpm: 120, bars: bars + 1, items: built.tracks };
+      const item = { name: 'Preview', voice: 'preset', preset: job.id, rootMidi: 69, volume: 45, pan: 0,
+        patterns: [{ name: 'Preview', bar: 0, bars: 2, notes: [0, 7, 12, 3].map((offset, i) => ({ tick: i * 36, midi: 57 + offset, length: 29, velocity: 76 })) }] };
+      return { bpm: 120, bars: 2, items: [item] };
     };
     await render.pool(batch, render.parallelRenders, async job => {
       try {
@@ -464,7 +413,7 @@ export function register({ tool, z, dsp, root, schemas, project, render, sounds,
       } catch (error) { failed.push({ type: job.type, id: job.id, reason: String(error.message).slice(0, 120) }); }
     });
     // Failed clips are remembered so later calls do not retry them for ever.
-    if (failed.length) await writeFile(skipFile, JSON.stringify([...skipped, ...failed], null, 1));
+    if (failed.length) await writeFileAtomic(skipFile, JSON.stringify([...skipped, ...failed], null, 1), { overwrite: true });
     return { folder: previewFolder, format: ext.slice(1), rendered: batch.length - failed.length, failed, remaining: todo.length - batch.length, total: jobs.length,
       next: todo.length - batch.length ? 'Call build_library_previews again for the next batch.' : 'All done. Rebuild the page with build_library_page (overwrite: true).' };
   });

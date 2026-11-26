@@ -34,18 +34,12 @@ function outputs(tool, args, result) {
     case 'synth_drums': return [entry([...result.files.map(file => file.file), result.manifest])];
     case 'layer_drum':
     case 'tune_drum': return [entry([result.file])];
-    case 'compose_piece':
     case 'create_drum_kit': return [entry([result.project])];
-    case 'compose_batch':
-      return result.ranking.map(candidate => entry([candidate.audio, candidate.project], candidate, {
-        ...args, seed: candidate.seed,
-      }));
     case 'master_audio':
     case 'export_midi': return [entry([result.file])];
     case 'render_mix': return [entry([result.audio])];
     case 'render_fathom_track': return [entry([args.audio, args.output])];
     case 'render_stems': return [entry(result.stems.map(stem => inFolder(stem.file)))];
-    case 'render_vst3_stems': return [entry([...result.stems.map(stem => inFolder(stem.file)), inFolder('manifest.json')])];
     case 'export_game_audio':
       return [entry([...result.files.flatMap(file => [inFolder(file.file), ...(file.ogg ? [inFolder(file.ogg)] : [])]), inFolder(result.manifest)])];
     case 'export_one_shots':

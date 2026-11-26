@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { guessRole, fileUrl, relativeUrl, sampleItems, presetItems, phraseItems, browserHtml } from './library-browser.mjs';
+import { guessRole, fileUrl, relativeUrl, sampleItems, presetItems, browserHtml } from './library-browser.mjs';
 
 test('roles are guessed from the words in a path', () => {
   assert.equal(guessRole('drums/kick_hard01.ogg'), 'kick');
@@ -19,7 +19,7 @@ test('file URLs survive spaces, # and Windows separators', () => {
   assert.equal(relativeUrl('latin perc\\Conga #1.wav'), 'latin%20perc/Conga%20%231.wav');
 });
 
-test('samples, presets and phrases become items with the fields the page filters on', () => {
+test('samples and presets become items with the fields the page filters on', () => {
   const [sample] = sampleItems([{ full: 'C:/s/drums/snare_rim01.ogg', relative: 'drums/snare_rim01.ogg' }], { type: 'stock', source: 'LMMS stock samples', url: f => fileUrl(f.full) });
   assert.deepEqual(sample, { t: 'stock', n: 'snare rim01', p: 'drums/snare_rim01.ogg', s: 'LMMS stock samples', c: 'drums', r: 'snare', g: ['ogg'], u: 'file:///C:/s/drums/snare_rim01.ogg' });
   const [preset] = presetItems({ 'ZynAddSubFX/Pads/0004-Analog Pad 2.xiz': { pitched: true, centroidHz: 879.4, attackMs: 180, sustainDb: 0, releaseMs: 170, role: 'pad', tags: ['sustained', 'warm'] } });
@@ -28,20 +28,6 @@ test('samples, presets and phrases become items with the fields the page filters
   assert.equal(preset.c, 'Pads');
   assert.deepEqual(preset.m, [879, 180, 0, 170, 1]);
   assert.equal(preset.u, null);
-  const helpers = { summarise: () => ({ source: 'shipped', rating: 4, uses: 2 }), phraseVoices: p => Object.entries(p.voices).map(([sound, grid]) => ({ sound, grid })),
-    renderPitched: () => [{ tick: 0, length: 24, midi: 57 }, { tick: 36, length: 12, midi: 64 }], spans: () => [] };
-  const [rhythm, pitched, progression, broken] = phraseItems([
-    { id: 'k', kind: 'rhythm', role: 'drums', name: 'Kick', styles: ['house'], instrument: 'kit', voices: { kick: 'X---X---X---X---' } },
-    { id: 'm', kind: 'harmonic', role: 'harmony', name: 'Montuno', line: '0=r:2' },
-    { id: 'p', kind: 'progression', name: 'Cadence', roman: 'i bVII', mode: 'minor' },
-    { id: 'b', kind: 'rhythm', role: 'drums', name: 'Broken' }], { ...helpers, phraseVoices: p => { if (!p.voices) throw new Error('no voices'); return helpers.phraseVoices(p); } });
-  assert.deepEqual(rhythm.v, { steps: 16, perBar: 16, rows: [['kick', 'X---X---X---X---']] });
-  assert.deepEqual(rhythm.g, ['house', 'kit']);
-  assert.equal(rhythm.k, 4);
-  assert.deepEqual(pitched.v.roll, [[0, 2, 57], [3, 1, 64]]);
-  assert.deepEqual(progression.v, { roman: 'i bVII', mode: 'minor' });
-  assert.equal(progression.r, 'progression');
-  assert.equal(broken.v, undefined);
 });
 
 test('the page embeds its data safely and has the controls', () => {

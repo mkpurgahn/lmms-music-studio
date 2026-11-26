@@ -1,8 +1,9 @@
-import { readFile, realpath, lstat, writeFile, unlink, readdir } from 'node:fs/promises';
+import { readFile, realpath, lstat, rm, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { decodeWav } from '../../audio.mjs';
 import { scanWorkspace, applyMeta, facets, validateMeta, metaText, sidecarFor } from '../sound-meta.mjs';
 import { sampleItems, classifyWorkspace } from '../library-browser.mjs';
+import { writeFileAtomic } from '../fs-atomic.mjs';
 import { idPattern, normalizeSession, samplePath } from './state.mjs';
 
 const assets = new Map(Object.entries({
@@ -100,9 +101,9 @@ async function saveTake(request, url, workspace) {
   if (errors.length) throw fail(errors.join(' '));
   const filename = path.join(workspace, name + '.wav');
   const sidecar = path.join(workspace, sidecarFor(name + '.wav'));
-  await writeFile(filename, raw, { flag: 'wx' });
-  try { await writeFile(sidecar, metaText(meta), { flag: 'wx' }); }
-  catch (error) { await unlink(filename); throw error; }
+  await writeFileAtomic(filename, raw, { overwrite: false });
+  try { await writeFileAtomic(sidecar, metaText(meta), { overwrite: false }); }
+  catch (error) { await Promise.allSettled([rm(filename, { force: true })]); throw error; }
   return { url: '/' + encode(name + '.wav'), sidecar: path.basename(sidecar), name, kind };
 }
 
@@ -140,7 +141,7 @@ export async function serveDesk(request, response, folders) {
       } else {
         if (request.headers['content-type']?.split(';')[0] !== 'application/json') throw fail('Expected application/json.', 415);
         const input = normalizeSession(JSON.parse(await body(request, MAX_JSON)));
-        await writeFile(file, JSON.stringify(input, null, 2) + '\n', { flag: 'wx' });
+        await writeFileAtomic(file, JSON.stringify(input, null, 2) + '\n', { overwrite: false });
         json(response, 201, { name: url.searchParams.get('name') });
       }
     } else if (pathname === '/api/mix-desk/take' && request.method === 'POST') json(response, 201, await saveTake(request, url, folders.workspace));

@@ -40,7 +40,7 @@ export function learnFromScores(history, feedback) {
 }
 
 export function register({ tool, z, moduleGuidance }) {
-  moduleGuidance.push('rank_candidates re-ranks compose_batch results with adjustable weights. learn_from_scores adjusts weights from listener feedback (preferred vs rejected).');
+  moduleGuidance.push('rank_candidates re-ranks arrangement/mix/tune candidates with adjustable weights. learn_from_scores adjusts weights from listener feedback (preferred vs rejected).');
 
   tool('rank_candidates', 'Re-rank a list of compose candidates with custom weights for arrangement, mix and tune. Returns sorted list with tasteScore.', {
     candidates: z.array(z.object({ id: z.string().optional(), arrangementAndMix: z.number().optional(), integratedLufs: z.number().optional(), tune: z.number().optional() })),

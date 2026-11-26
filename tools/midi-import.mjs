@@ -185,7 +185,7 @@ export function register({ tool, z, root, project, render, dsp, schemas, moduleG
     pedal: z.enum(['bake', 'ignore']).default('bake').describe('bake holds notes while the sustain pedal (CC64) is down, because LMMS patterns do not store controllers.'),
     volumeChanges: z.enum(['fold', 'ignore']).default('fold').describe('fold scales note velocities by channel volume (CC7) and expression (CC11).'),
     transpose: z.number().int().min(-48).max(48).default(0),
-    voice: z.enum(['pluck', 'bass', 'pad']).default('pluck').describe('Built-in voice for previews in LMMS. Use apply_preset to change it, or export_midi and render_vst3_stems for a sampled piano.'),
+    voice: z.enum(['pluck', 'bass', 'pad']).default('pluck').describe('Built-in voice for previews in LMMS. Use apply_preset to change it, or export_midi and render_soundfont for a SoundFont instrument.'),
     role: z.enum(['drums', 'bass', 'harmony', 'lead', 'counter', 'texture', 'fx']).optional(),
     volume: z.number().min(0).max(200).default(100),
   }, async ({ midi: file, output, bpm, timing, form, tracks, merge, pedal, volumeChanges, transpose, voice, role, volume }) => {
@@ -213,7 +213,7 @@ export function register({ tool, z, root, project, render, dsp, schemas, moduleG
     };
   });
 
-  tool('master_audio', 'Finish any workspace WAV, for example a render from render_vst3_stems: trim the silence after the last sound, fade the end, bring it to a loudness target under a true-peak ceiling and write WAV or OGG. Report loudness and peak before and after.', {
+  tool('master_audio', 'Finish any workspace WAV, for example a render from render_mix or render_soundfont: trim the silence after the last sound, fade the end, bring it to a loudness target under a true-peak ceiling and write WAV or OGG. Report loudness and peak before and after.', {
     audio: schemas.workspaceWav, output: schemas.audioOut,
     targetLufs: schemas.loudnessTarget, ceilingDb: schemas.ceilingTarget,
     trimTail: z.boolean().default(true).describe('Cut the end after the sound has fallen below -70 dBFS, keeping tailSeconds.'),

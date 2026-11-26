@@ -3,42 +3,54 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 import { z } from 'zod';
-import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, rmdir, writeFile } from 'node:fs/promises';
+import { existsSync, realpathSync } from 'node:fs';
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 import { deflateSync, gunzipSync, inflateSync } from 'node:zlib';
 import midiPackage from '@tonejs/midi';
 import { createConnection } from 'node:net';
 import { renderFathom } from './fathom.mjs';
 import { generationStore } from './tools/generations.mjs';
-import { composerProfiles, composeProfile, describeProfile } from './composers.mjs';
 import { fathomPatches, searchSounds, measureInstrument } from './catalogue.mjs';
 import * as dsp from './audio.mjs';
 import { expandPattern, parseChord, voiceChord, bassNote, chordQualities } from './music.mjs';
 import { effectTypes, resolveParams, describeEffects } from './effects.mjs';
-import { lmmsDataDirectory, renderTimeoutMs, vst3SetupText, noteMapKey, checkNoteMap } from './tools/vst3-linux.mjs';
+import { createLogger } from './tools/logger.mjs';
+import { runCommandSafe, writeFileAtomic } from './tools/fs-atomic.mjs';
+import * as workspaceConfig from './tools/workspace-config.mjs';
+import {
+  ensureLmmsAsciiPath,
+  hasNonAscii,
+  resolveAsciiCacheDir,
+  resolveFfmpegExecutable,
+  resolveLmmsDataDir,
+  resolveLmmsExecutable,
+  resolveLmmsPluginsDir,
+  resolveLmmsPresetsDir,
+  resolveLmmsSamplesDir,
+  resolveSoundfontsDir,
+  resolveWorkspaceDir,
+} from './tools/workspace-config.mjs';
 
-const run = promisify(execFile);
-const root = path.resolve(process.env.LMMS_WORKSPACE ?? process.cwd());
-const lmms = process.env.LMMS_EXECUTABLE ??
-  (process.platform === 'win32' ? 'C:/Program Files/LMMS/lmms.exe' : 'lmms');
-const dataDirectory = lmmsDataDirectory(lmms);
-const presets = path.resolve(process.env.LMMS_PRESETS ?? path.join(dataDirectory, 'presets'));
-const samplesDirectory = path.resolve(process.env.LMMS_SAMPLES ?? path.join(dataDirectory, 'samples'));
-const pluginDirectory = path.resolve(process.env.LMMS_PLUGINS ?? path.join(path.dirname(lmms), 'plugins'));
-const ffmpeg = process.env.LMMS_FFMPEG ?? 'ffmpeg';
+export const log = createLogger('mcp-server');
+export const root = resolveWorkspaceDir(process.env);
+export const soundfontsDirectory = resolveSoundfontsDir(process.env);
+export const lmms = resolveLmmsExecutable(process.env);
+export const dataDirectory = resolveLmmsDataDir(lmms);
+export const presets = resolveLmmsPresetsDir(process.env, lmms);
+export const samplesDirectory = resolveLmmsSamplesDir(process.env, lmms);
+export const pluginDirectory = resolveLmmsPluginsDir(process.env, lmms);
+export const ffmpeg = resolveFfmpegExecutable(process.env);
 const instructions = [
-  'LMMS MCP composes, edits, analyses and exports editable game audio using saved LMMS projects.',
+  'LMMS Music Studio MCP composes, edits, analyses and exports editable audio using saved LMMS projects.',
   'Start with get_started for workflow and local capabilities, then use tools/list for exact schemas.',
-  'For a musical brief, list_composer_profiles and create_composer_sketch or create_project. Search and audition sounds with search_sounds and preview_sound.',
+  'Search and audition sounds with search_sounds, list_samples, list_soundfonts and preview_sound, then build arrangements with create_project.',
   'Edit and mix with apply_edits. Render before delivery, inspect levels and the loop seam with analyze_audio, then use export_game_audio for loops, layers and stingers.',
   'Preserve the editable MMP or MMPZ and its referenced samples. A beat is 48 ticks and a 4/4 bar is 192 ticks. Project bars start at zero.',
-  'Stock LMMS handles saved projects. Fathom rendering and Windows live control require optional local components.',
-  'Use list_external_tools to discover optional VST3 instruments and related setup instructions.',
+  'Stock LMMS handles saved projects. Fathom rendering, FluidSynth SoundFont rendering and Windows live control require optional local components.',
+  'Use list_external_tools to discover optional audio tools and local setup status.',
   'Arrangement rules: give every track a role (drums, bass, harmony, lead, counter, texture or fx). One lead melody at a time, with at most one counter-melody under it. Bass and harmony support the lead and stay out of its register. Build sections by repeating and varying one motif, and leave space.',
 ].join(' ');
 // Feature modules in tools/ add their own guidance here; get_started returns it.
@@ -50,7 +62,10 @@ async function runChecks(list, doc, project, strict) {
   const reports = [];
   for (const check of list) {
     try { const report = await check(doc, { project }); if (report) reports.push(report); }
-    catch (error) { reports.push({ summary: 'An arrangement check failed: ' + error.message, blocking: false, warnings: [] }); }
+    catch (error) {
+      log.warn('Arrangement check failed', { project, error });
+      reports.push({ summary: 'An arrangement check failed: ' + error.message, blocking: false, warnings: [] });
+    }
   }
   if (!reports.length) return {};
   const arrangement = { summary: reports.map(r => r.summary).join(' '), blocking: reports.some(r => r.blocking), warnings: reports.flatMap(r => r.warnings ?? []) };
@@ -58,7 +73,7 @@ async function runChecks(list, doc, project, strict) {
   return { arrangement };
 }
 const strictChecks = z.boolean().default(false).describe('Stop with an error, writing nothing, when an arrangement check reports an error.');
-const server = new McpServer({ name: 'lmms-project-tools', version: '0.9.1' }, { instructions });
+export const server = new McpServer({ name: 'lmms-project-tools', version: '0.9.1' }, { instructions });
 const projectName = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,79}\.mmpz?$/i);
 const compressed = name => name.toLowerCase().endsWith('.mmpz');
 const maxProjectBytes = 32 * 1024 * 1024;
@@ -142,12 +157,12 @@ function add(parent, tag, attrs = {}) {
 const children = (node, tag) => Array.from(node?.childNodes ?? []).filter(child => child.nodeName === tag);
 const elements = node => Array.from(node?.childNodes ?? []).filter(child => child.nodeType === 1);
 const xml = new XMLSerializer();
-function parse(source) {
+export function parse(source) {
   const doc = new DOMParser().parseFromString(source, 'application/xml');
   if (doc.documentElement.tagName !== 'lmms-project') throw new Error('Expected an LMMS project');
   return doc;
 }
-async function load(project) {
+export async function load(project) {
   const filePath = path.join(root, project);
   const info = await lstat(filePath);
   if (!info.isFile() || info.size > maxProjectBytes) throw new Error('Expected a regular project file up to 32 MiB');
@@ -159,7 +174,7 @@ async function load(project) {
   if (source.length !== file.readUInt32BE(0)) throw new Error('Compressed project size mismatch');
   return parse(source.toString('utf8'));
 }
-async function save(doc, output, overwrite = false) {
+export async function save(doc, output, overwrite = false) {
   const source = Buffer.from(xml.serializeToString(doc), 'utf8');
   if (source.length > maxProjectBytes) throw new Error('Project exceeds 32 MiB');
   let file = source;
@@ -168,7 +183,8 @@ async function save(doc, output, overwrite = false) {
     prefix.writeUInt32BE(source.length);
     file = Buffer.concat([prefix, deflateSync(source)]);
   }
-  await writeFile(path.join(root, output), file, { flag: overwrite ? 'w' : 'wx' });
+  await mkdir(root, { recursive: true });
+  await writeFileAtomic(path.join(root, output), file, { overwrite });
   return { project: output };
 }
 function tracks(doc) {
@@ -180,7 +196,7 @@ const isAnchor = t => t.getAttribute('type') === '2' && t.getAttribute('name') =
 // Automation tracks and the length anchor carry no audio of their own; they stay active in every isolated render.
 const isControl = t => t.getAttribute('type') === '5' || isAnchor(t);
 
-function songInfo(doc) {
+export function songInfo(doc) {
   const [head] = children(doc.documentElement, 'head');
   const bpm = Number(head?.getAttribute('bpm') || 140);
   const meter = [Number(head?.getAttribute('timesig_numerator') || 4), Number(head?.getAttribute('timesig_denominator') || 4)];
@@ -207,7 +223,7 @@ function songInfo(doc) {
 }
 // LMMS sizes a piano-roll clip from its last note, so empty bars at the end of a song vanish.
 // An empty sample clip pins the song to the intended length.
-function setAnchor(doc, bars) {
+export function setAnchor(doc, bars) {
   for (const t of tracks(doc).filter(isAnchor)) t.parentNode.removeChild(t);
   if (bars === null) return;
   const { ticksPerBar } = songInfo(doc);
@@ -215,7 +231,7 @@ function setAnchor(doc, bars) {
   add(target, 'sampletrack', { vol: 0, pan: 0 });
   add(target, 'sampletco', { pos: 0, len: Math.round(bars * ticksPerBar), muted: 0, src: '' });
 }
-function addPattern(target, part) {
+export function addPattern(target, part) {
   const ticks = part.bars * 192;
   const notes = expandPattern(part);
   if (notes.some(n => n.tick + n.length > ticks)) throw new Error('Note extends beyond pattern');
@@ -236,7 +252,7 @@ async function checkTrack(item) {
   } else if (item.sample || item.factorySample) throw new Error(`Track "${item.name}": sample and factorySample need voice "sample"`);
   if ((item.voice === 'preset') !== Boolean(item.preset)) throw new Error(`Track "${item.name}": voice "preset" and the preset field go together`);
 }
-function addTrack(parent, item) {
+export function addTrack(parent, item) {
   const target = add(parent, 'track', { muted: 0, solo: 0, type: 0, name: item.name });
   if (item.role) target.setAttribute('mcp-role', item.role);
   const instrumentTrack = add(target, 'instrumenttrack', { vol: item.volume, pan: item.pan, basenote: 57, fxch: 0 });
@@ -299,12 +315,14 @@ function tool(name, description, inputSchema, handler) {
         const ids = await generations.record(name, args, result);
         if (ids.length) catalogue = { generationIds: ids };
       } catch (error) {
+        log.warn('Catalogue recording failed', { tool: name, error });
         catalogue = { catalogueWarning: 'Output was written, but catalogue recording failed: ' + explain(error) };
       }
       const content = [{ type: 'text', text: JSON.stringify(Object.keys(catalogue).length ? { ...result, ...catalogue } : result) }];
       for (const png of result?.[imagesKey] ?? []) content.push({ type: 'image', data: png.toString('base64'), mimeType: 'image/png' });
       return { content };
     } catch (error) {
+      log.warn('Tool execution error', { tool: name, error: explain(error) });
       return { isError: true, content: [{ type: 'text', text: explain(error) }] };
     }
   });
@@ -321,176 +339,44 @@ function edit(name, description, schema, apply, { checked = false } = {}) {
       return { ...(await save(doc, output)), ...extra, ...checks };
     });
 }
-function createSong(bpm, items, mastervol = 86) {
+export function createSong(bpm, items, mastervol = 86) {
   const doc = parse('<?xml version="1.0"?><!DOCTYPE lmms-project><lmms-project version="1.0" creator="LMMS" creatorversion="1.2.2" type="song"/>');
   add(doc.documentElement, 'head', { bpm, mastervol, timesig_numerator: 4, timesig_denominator: 4 });
   const parent = add(add(doc.documentElement, 'song'), 'trackcontainer', { type: 'song' });
   for (const item of items) addTrack(parent, item);
   return doc;
 }
-const profileId = z.enum(Object.keys(composerProfiles));
-const externalInstruments = {
-  'decent-sampler': { env: 'LMMS_DECENT_SAMPLER_VST3', url: 'https://store.decentsamples.com/downloads/decent-sampler/versions', use: 'Sample libraries. Convert an SFZ library with convert_sfz and pass the .dspreset, or save a VST3 preset from a host.' },
-  'surge-xt': { env: 'LMMS_SURGE_XT_VST3', url: 'https://surge-synthesizer.github.io/downloads/', use: 'Synth patches for pads, leads and bass.' },
-};
-const vstWorker = new URL('./vst3-render.py', import.meta.url);
-function externalSetup() {
-  return Object.entries(externalInstruments).map(([id, item]) => ({
-    id, ...item, configured: Boolean(process.env[item.env]), fileFound: Boolean(process.env[item.env] && existsSync(process.env[item.env])),
-  }));
-}
-tool('list_external_tools', 'Discover optional renderer dependencies, VST3 instruments and upstream setup links.', {}, async () => {
-  let dependencies;
-  let workerError;
-  if (process.env.LMMS_VST3_PYTHON) {
-    try {
-      const { stdout } = await run(process.env.LMMS_VST3_PYTHON, [fileURLToPath(vstWorker), 'probe'], { timeout: 5000, windowsHide: true });
-      dependencies = JSON.parse(stdout);
-    } catch (error) {
-      workerError = error.code ?? 'probe failed';
-    }
-  }
-  return { pythonConfigured: Boolean(process.env.LMMS_VST3_PYTHON), dependencies, workerError, instruments: externalSetup(),
-    host: 'https://spotify.github.io/pedalboard/',
-    otherTools: [
-      { name: 'FFmpeg', use: 'OGG export', env: 'LMMS_FFMPEG', url: 'https://ffmpeg.org/download.html' },
-      { name: 'Fathom Synth', use: 'Optional synth worklet', env: 'LMMS_FATHOM_WORKLET' },
-      { name: 'LMMS Agent Bridge', use: 'Optional live editing on Windows', env: 'LMMS_LIVE_PIPE', url: 'https://github.com/Jx9x/lmms-mcp-bridge' },
-      { name: 'FluidSynth', use: 'SF2/SF3 MIDI render via render_soundfont. Set LMMS_FLUIDSYNTH or have fluidsynth on PATH. See docs/soundfont.md.', url: 'https://github.com/FluidSynth/fluidsynth/releases' },
-    ],
-    setup: vst3SetupText() };
-});
-tool('render_vst3_stems', 'Render named tracks from an editable format 1 MIDI export with configured VST3 instruments, up to 10 minutes, with an optional EQ, width, reverb and acoustic space (room, hall, church or cathedral) per track. Return aligned stereo WAVs, a mix and a reproducible assignment manifest. Leave a few seconds after the last note for the release and reverb tail.', {
-  midi: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,79}\.mid$/i),
-  outputDirectory: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,79}$/i),
-  durationSeconds: z.number().min(0.1).max(600),
-  tracks: z.array(z.object({
-    track: z.string().min(1).max(100),
-    name: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/i),
-    instrument: z.enum(Object.keys(externalInstruments)),
-    preset: z.string().regex(/^[a-z0-9][a-z0-9 _-]{0,99}\.vstpreset$/i).optional(),
-    dspreset: z.string().regex(/^[a-z0-9][a-z0-9 _-]{0,99}\.dspreset$/i).optional()
-      .describe('A Decent Sampler preset in the workspace, for example from convert_sfz. Use instead of preset; instrument must be decent-sampler.'),
-    parameters: z.record(z.string().max(120), z.number().min(0).max(1)).default({}),
-    gainDb: z.number().min(-60).max(36).default(0).describe('Gain in dB after the instrument, EQ and space. Quiet sampled instruments can need more than 12 dB; the shared gain still stops the mix clipping. Use normalise to level a stem without measuring it first.'),
-    normalise: z.number().min(-60).max(0).optional().describe('Bring this stem to this peak level in dBFS before gainDb is added, for example -6. It measures the stem, so it fixes instruments that differ by 10 dB or more.'),
-    noteMap: z.record(z.string().regex(noteMapKey), z.number().int().min(0).max(127)).optional()
-      .describe('Move notes to other keys before the instrument hears them. Keys are source MIDI notes, or * for every other note. Drum tracks from LMMS export at note 69, so a kick track needs { "*": 36 }, a snare { "*": 38 }, a ride { "*": 51 } and a crash { "*": 49 }.'),
-    transpose: z.number().int().min(-48).max(48).default(0).describe('Semitones to shift every note, after noteMap. Notes that fall outside the preset range are reported in warnings.'),
-    noteRange: z.tuple([z.number().int().min(0).max(127), z.number().int().min(0).max(127)]).optional()
-      .describe('The lowest and highest key the instrument plays, for the out-of-range warning. A dspreset supplies it by itself; give it for a vstpreset.'),
-    width: z.number().min(0).max(1.5).default(1).describe("Stereo width of the instrument before the reverb: 0 is mono, 1 unchanged. Wide sampled pianos often need 0.5 to 0.7 to hold together in mono."),
-    eq: z.array(z.object({
-      type: z.enum(["highpass", "lowshelf", "highshelf", "peak"]), hz: z.number().min(20).max(20000),
-      db: z.number().min(-18).max(18).default(0), q: z.number().min(0.1).max(10).default(0.7),
-    })).max(6).default([]).describe("EQ after the instrument, before the reverb. For example a highshelf at 3500 Hz +3 dB to brighten a soft piano."),
-    space: z.object({
-      type: z.enum(["room", "hall", "church", "cathedral"]).describe("room 0.9 s, hall 2.4 s, church 4.2 s, cathedral 7 s of decay."),
-      wetDb: z.number().min(-40).max(0).default(-10).describe("Loudness of the space against the dry sound, measured, so it means the same in every space. -14 is subtle, -10 is spacious, -6 is distant."),
-      width: z.number().min(0).max(1).default(0.6).describe("Stereo width of the space: 0 is a mono tail, 1 fully wide. Wider tails thin out in mono."),
-      seconds: z.number().min(0.3).max(12).optional().describe("Decay time, to override the preset."),
-      predelayMs: z.number().min(0).max(200).optional(), brightness: z.number().min(0).max(1).optional().describe("How long the highs ring. Stone churches are darker than halls."),
-    }).optional().describe("A convolution reverb from a synthetic impulse response of a real-sized space. Smoother than reverb for long tails; use one or the other. Add the decay time to durationSeconds so the tail is kept."),
-    reverb: z.object({
-      wet: z.number().min(0).max(1).default(0.22), roomSize: z.number().min(0).max(1).default(0.7),
-      damping: z.number().min(0).max(1).default(0.5), width: z.number().min(0).max(1).default(1),
-      preDelayMs: z.number().min(0).max(200).default(20),
-    }).optional().describe("Add a room to this track after the instrument, for example { wet: 0.22, roomSize: 0.75 } for a piano in a hall. The stem keeps its reverb, so the stems still sum to the mix."),
-  })).min(1).max(8),
-  cleanupLogs: z.boolean().default(false).describe('Linux: delete the Decent Sampler log files in ~/.config/DecentSampler that this render wrote. Older files are left alone.'),
-}, async ({ midi, outputDirectory, durationSeconds, tracks, cleanupLogs }) => {
-  const python = process.env.LMMS_VST3_PYTHON;
-  if (!python) throw new Error('Set LMMS_VST3_PYTHON. See list_external_tools and the README.');
-  for (const track of tracks) checkNoteMap(track.noteMap);
-  const names = tracks.map(track => track.name.toLowerCase());
-  if (new Set(names).size !== names.length || names.includes('mix')) throw new Error('Use unique stem names other than mix');
-  const midiPath = path.join(root, midi);
-  const midiInfo = await lstat(midiPath);
-  if (!midiInfo.isFile() || midiInfo.size > 4 * 1024 * 1024) throw new Error('Expected a workspace MIDI file up to 4 MiB');
-  const assignments = [];
-  for (const track of tracks) {
-    const plugin = process.env[externalInstruments[track.instrument].env];
-    if (!plugin || !existsSync(plugin)) throw new Error('Configure ' + externalInstruments[track.instrument].env);
-    if (track.preset && track.dspreset) throw new Error("Use preset or dspreset, not both");
-    if (track.dspreset && track.instrument !== "decent-sampler") throw new Error("dspreset needs the decent-sampler instrument");
-    const preset = track.preset && path.join(root, track.preset);
-    const dspreset = track.dspreset && path.join(root, track.dspreset);
-    if (dspreset) {
-      const info = await lstat(dspreset);
-      if (!info.isFile() || info.size > 8 * 1024 * 1024) throw new Error("Expected a workspace .dspreset up to 8 MiB");
-    }
-    if (preset) {
-      const info = await lstat(preset);
-      if (!info.isFile() || info.size > 16 * 1024 * 1024) throw new Error('Expected a workspace VST3 preset up to 16 MiB');
-    }
-    assignments.push({ ...track, plugin, preset, dspreset });
-  }
-  const directory = path.join(root, outputDirectory);
-  const frames = Math.round(durationSeconds * 48000);
-  await mkdir(directory);
-  const request = path.join(directory, '.render.json');
-  try {
-    await writeFile(request, JSON.stringify({ midi: midiPath, directory, frames, tracks: assignments, cleanupLogs }), { flag: 'wx' });
-    const { stdout } = await run(python, [fileURLToPath(vstWorker), request], { timeout: renderTimeoutMs(tracks.length, durationSeconds), windowsHide: true });
-    const { sharedGain, warnings = [] } = JSON.parse(stdout.trim().split(/\r?\n/).at(-1));
-    const stems = [];
-    for (const filename of [...tracks.map(track => track.name + '.wav'), 'mix.wav']) {
-      const wav = await readFile(path.join(directory, filename));
-      const stats = measureWav(wav);
-      if (stats.channels !== 2 || stats.sampleRate !== 48000 || Math.round(stats.durationSeconds * 48000) !== frames) {
-        throw new Error('Unexpected VST3 render format or length');
-      }
-      stems.push({ file: filename, ...stats });
-    }
-    await rm(request);
-    const manifest = { midi, sampleRate: 48000, frames, sharedGain, tracks, stems, ...(warnings.length ? { warnings } : {}) };
-    await writeFile(path.join(directory, 'manifest.json'), JSON.stringify(manifest, null, 2), { flag: 'wx' });
-    return { directory: outputDirectory, ...manifest };
-  } catch (error) {
-    for (const filename of ['.render.json', 'manifest.json', 'mix.wav', ...tracks.map(track => track.name + '.wav')]) {
-      await rm(path.join(directory, filename), { force: true });
-    }
-    await rmdir(directory);
-    throw error;
-  }
-});
-tool('get_started', 'Read the LMMS MCP workflow and discover the local setup before composing, editing or exporting.', {}, async () => ({
+tool('list_external_tools', 'Discover optional audio tools, SoundFont directories and local setup status.', {}, async () => ({
+  lmmsExecutable: lmms,
+  lmmsFound: path.isAbsolute(lmms) ? existsSync(lmms) : true,
+  soundfontsDirectory,
+  soundfontsDirectoryFound: existsSync(soundfontsDirectory),
+  oggOutput: await hasFfmpeg(),
+  otherTools: [
+    { name: 'FFmpeg', use: 'OGG export', env: 'LMMS_FFMPEG', url: 'https://ffmpeg.org/download.html' },
+    { name: 'FluidSynth', use: 'SF2/SF3 MIDI render via render_soundfont. Set LMMS_FLUIDSYNTH or have fluidsynth on PATH. See docs/soundfont.md.', url: 'https://github.com/FluidSynth/fluidsynth/releases' },
+    { name: 'Fathom Synth', use: 'Optional synth worklet', env: 'LMMS_FATHOM_WORKLET' },
+    { name: 'LMMS Agent Bridge', use: 'Optional live editing on Windows', env: 'LMMS_LIVE_PIPE', url: 'https://github.com/Jx9x/lmms-mcp-bridge' },
+  ],
+}));
+tool('get_started', 'Read the LMMS Music Studio MCP workflow and discover the local setup before composing, editing or exporting.', {}, async () => ({
   instructions,
   moduleGuidance,
   workspace: root,
   setup: {
     lmmsExecutable: lmms,
+    soundfontsDirectory,
     fathomConfigured: Boolean(process.env.LMMS_FATHOM_WORKLET && existsSync(process.env.LMMS_FATHOM_WORKLET)),
     liveToolsEnabled: process.platform === 'win32' && /^[a-zA-Z0-9_-]+$/.test(process.env.LMMS_LIVE_PIPE ?? ''),
-    vst3PythonConfigured: Boolean(process.env.LMMS_VST3_PYTHON),
   },
   workflows: {
-    plan: ['list_composer_profiles', 'resolve_chords', 'search_sounds', 'list_samples', 'preview_sound'],
-    compose: ['create_composer_sketch', 'create_project', 'inspect_arrangement', 'apply_edits'],
+    plan: ['resolve_chords', 'search_sounds', 'list_samples', 'preview_sound'],
+    compose: ['create_project', 'inspect_arrangement', 'apply_edits'],
     mix: ['inspect_effects', 'list_effects', 'automate_track', 'render_mix', 'analyze_audio'],
     deliver: ['export_game_audio', 'render_stems', 'export_midi', 'export_one_shots'],
-    external: ['list_external_tools', 'render_vst3_stems'],
+    external: ['list_external_tools', 'list_soundfonts', 'render_soundfont'],
   },
 }));
-tool('list_composer_profiles', 'Find composer studies by name, musical technique or game use.', {
-  query: z.string().max(120).default(''),
-}, async ({ query }) => {
-  const words = query.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
-  return Object.values(composerProfiles).map(describeProfile).filter(profile => {
-    const text = Object.values(profile).flat().join(' ').toLowerCase();
-    return words.every(word => text.includes(word));
-  });
-});
-tool('create_composer_sketch', 'Write an original editable LMMS sketch based on a composer profile. Uses stock instruments and suggests a Fathom patch for the motif.', {
-  output: projectName, profileId, root: z.number().int().min(48).max(67).default(60),
-  bpm: z.number().int().min(45).max(240).default(120), bars: z.number().int().min(4).max(16).default(4),
-}, async ({ output, profileId: id, root, bpm, bars }) => {
-  const profile = composerProfiles[id];
-  const items = composeProfile(profile, { root, bars });
-  for (const item of items) track.parse(item);
-  return { ...await save(createSong(bpm, items), output), profile: describeProfile(profile), root, bpm, bars,
-    suggestedFathom: { trackName: 'Motif', patchId: profile.patchId } };
-});
 const declaredBars = items => Math.max(...items.flatMap(item => item.patterns.map(part => part.bar + part.bars)));
 tool('create_project', 'Create an editable 4/4 LMMS project. One bar is 192 ticks, one beat is 48. Each pattern takes raw notes, a drum step grid, a melody line or a chord progression. Stock drum notes play at original pitch on MIDI 69; give one-shots a note length that covers the sample. The song is pinned to lengthBars (default: the last declared pattern bar) even when its final bars are empty.', {
   output: projectName, bpm: z.number().min(45).max(240), tracks: z.array(track).min(1).max(48),
@@ -605,11 +491,12 @@ tool('render_fathom_track', 'Render LMMS piano-roll notes through Fathom Atelier
   add(target, 'sampletco', { pos: 0, len: durationTicks, muted: 0,
     src: path.join(root, audio).replaceAll('\\', '/') });
   const filename = path.join(root, audio);
-  await writeFile(filename, wav, { flag: 'wx' });
+  await mkdir(root, { recursive: true });
+  await writeFileAtomic(filename, wav, { overwrite: false });
   try {
     await save(doc, output);
   } catch (error) {
-    await rm(filename);
+    await Promise.allSettled([rm(filename, { force: true })]);
     throw error;
   }
   return { project: output, audio, track: name, notes: notes.length, cutoff, ...measureWav(wav) };
@@ -760,7 +647,6 @@ tool('list_presets', 'List installed factory presets: native .xpf paths, plus Zy
 
 // ---------- rendering ----------
 const renderLimit = Number(process.env.LMMS_RENDER_TIMEOUT_SECONDS) || null;
-const nightlyDeadline = Number(process.env.LMMS_NIGHTLY_DEADLINE_MS) || null;
 function forRender(doc) {
   const copy = parse(xml.serializeToString(doc));
   const list = tracks(copy);
@@ -779,27 +665,54 @@ function isolate(doc, keep) {
   });
   return copy;
 }
-async function renderDoc(doc, { loop = true, prepared = false } = {}) {
-  const copy = prepared ? doc : forRender(doc);
+async function stageNonAsciiSources(doc) {
+  if (process.platform !== 'win32') return doc;
+  for (const tag of ['audiofileprocessor', 'sampletco', 'sf2player']) {
+    for (const node of Array.from(doc.getElementsByTagName(tag))) {
+      const src = node.getAttribute('src');
+      if (src && hasNonAscii(src) && path.isAbsolute(src) && existsSync(src)) {
+        const asciiSrc = await ensureLmmsAsciiPath(src);
+        node.setAttribute('src', asciiSrc.replaceAll('\\', '/'));
+      }
+    }
+  }
+  return doc;
+}
+export async function renderDoc(doc, { loop = true, prepared = false } = {}) {
+  const copy = await stageNonAsciiSources(prepared ? parse(xml.serializeToString(doc)) : forRender(doc));
   const seconds = renderLimit ?? Math.min(3600, Math.max(180, Math.round(songInfo(doc).lengthSeconds * 10 + 120)));
-  const temp = await mkdtemp(path.join(root, '.render-'));
+  const scratchBase = process.platform === 'win32' && hasNonAscii(root)
+    ? path.join(resolveAsciiCacheDir(process.env), 'renders')
+    : root;
+  await mkdir(scratchBase, { recursive: true });
+  const temp = await mkdtemp(path.join(scratchBase, '.render-'));
+  const project = path.join(temp, 'render.mmp'), rendered = path.join(temp, 'render.wav');
   try {
-    const project = path.join(temp, 'render.mmp'), rendered = path.join(temp, 'render.wav');
-    await writeFile(project, xml.serializeToString(copy));
-    const remaining = nightlyDeadline === null ? Infinity : nightlyDeadline - Date.now();
-    if (remaining <= 0) throw new Error('Recipe time budget exceeded');
-    const timeout = Math.min(seconds * 1000, remaining);
+    await writeFileAtomic(project, xml.serializeToString(copy), { overwrite: true });
     try {
-      await run(lmms, ['render', project, '-s', '48000', '-f', 'wav', ...(loop ? ['-l'] : []), '-o', rendered],
-        { cwd: root, timeout, windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
+      await runCommandSafe(lmms, ['render', project, '-s', '48000', '-f', 'wav', ...(loop ? ['-l'] : []), '-o', rendered],
+        { cwd: scratchBase, timeoutMs: seconds * 1000, maxBuffer: 64 * 1024 * 1024 });
     } catch (error) {
-      if (error.killed && timeout === remaining) throw new Error('Recipe time budget exceeded');
-      if (error.killed) throw new Error(`LMMS did not finish rendering within ${seconds} seconds. Set LMMS_RENDER_TIMEOUT_SECONDS to allow longer.`);
+      log.error('LMMS render invocation failed', { lmms, timeoutSeconds: seconds, timedOut: Boolean(error.timedOut), code: error.code });
+      if (error.timedOut || error.killed) {
+        throw new Error(`LMMS did not finish rendering within ${seconds} seconds. Set LMMS_RENDER_TIMEOUT_SECONDS to allow longer.`);
+      }
       throw new Error(error.code === 'ENOENT' ? `LMMS was not found at ${lmms}. Set LMMS_EXECUTABLE.` : 'LMMS render failed: ' + String(error.message).split('\n')[0]);
     }
     return await readFile(rendered);
   } finally {
-    await rm(temp, { recursive: true, force: true });
+    const cleanup = await Promise.allSettled([
+      rm(rendered, { force: true }),
+      rm(project, { force: true }),
+      rm(temp, { recursive: true, force: true }),
+    ]);
+    const rejected = cleanup.filter(item => item.status === 'rejected');
+    if (rejected.length) {
+      log.warn('Temporary render cleanup encountered errors', {
+        temp,
+        errors: rejected.map(item => item.reason?.message ?? String(item.reason)),
+      });
+    }
   }
 }
 async function pool(items, limit, work) {
@@ -813,19 +726,24 @@ async function pool(items, limit, work) {
 const parallelRenders = Math.max(1, Math.min(4, Number(process.env.LMMS_PARALLEL_RENDERS) || 3));
 let ffmpegFound;
 async function hasFfmpeg() {
-  ffmpegFound ??= run(ffmpeg, ['-version'], { windowsHide: true }).then(() => true, () => false);
+  ffmpegFound ??= runCommandSafe(ffmpeg, ['-version'], { timeoutMs: 10000 }).then(() => true, () => false);
   return ffmpegFound;
 }
 async function writeAudio(file, wav, overwrite = false) {
-  if (!file.toLowerCase().endsWith('.ogg')) return writeFile(file, wav, { flag: overwrite ? 'w' : 'wx' });
+  await mkdir(path.dirname(file), { recursive: true });
+  if (!file.toLowerCase().endsWith('.ogg')) return writeFileAtomic(file, wav, { overwrite });
   if (!(await hasFfmpeg())) throw new Error('OGG output needs ffmpeg. Install it or set LMMS_FFMPEG to its path.');
-  if (existsSync(file)) throw new Error('Output already exists');
+  if (!overwrite && existsSync(file)) throw new Error('Output already exists');
   const temp = await mkdtemp(path.join(root, '.encode-'));
+  const inWav = path.join(temp, 'in.wav');
+  const outOgg = path.join(temp, 'out.ogg');
   try {
-    await writeFile(path.join(temp, 'in.wav'), wav);
-    await run(ffmpeg, ['-v', 'error', '-n', '-i', path.join(temp, 'in.wav'), '-c:a', 'libvorbis', '-q:a', '6', file], { windowsHide: true, timeout: 120000 });
+    await writeFileAtomic(inWav, wav, { overwrite: true });
+    await runCommandSafe(ffmpeg, ['-v', 'error', '-y', '-i', inWav, '-c:a', 'libvorbis', '-q:a', '6', outOgg], { timeoutMs: 120000 });
+    const encoded = await readFile(outOgg);
+    await writeFileAtomic(file, encoded, { overwrite });
   } finally {
-    await rm(temp, { recursive: true, force: true });
+    await Promise.allSettled([rm(temp, { recursive: true, force: true })]);
   }
 }
 // Bring audio to a loudness target under a peak ceiling. Returns what was done.
@@ -880,7 +798,7 @@ function readPcm(wav) {
   }
   return { channels, sampleRate, frameBytes, samples };
 }
-function measureWav(wav) {
+export function measureWav(wav) {
   const { channels, sampleRate, frameBytes, samples } = readPcm(wav);
   let peak = 0;
   let sumSquares = 0;
@@ -905,7 +823,7 @@ const tailMode = z.enum(['cut', 'wrap', 'keep']).default('cut')
   .describe('cut: stop at the last bar (default). wrap: fold the reverb and delay tail back onto the start for a seamless loop. keep: let the tail ring out (one extra bar).');
 const loudnessTarget = z.number().min(-36).max(-6).optional().describe('Integrated loudness target in LUFS, for example -16 for game music.');
 const ceilingTarget = z.number().min(-12).max(0).optional().describe('True-peak ceiling in dBTP for the built-in limiter, measured with 4x oversampling so inter-sample peaks stay under it (default -1 when a loudness target is set).');
-async function renderMix(doc, { tail = 'cut', targetLufs, ceilingDb } = {}) {
+export async function renderMix(doc, { tail = 'cut', targetLufs, ceilingDb } = {}) {
   const info = songInfo(doc);
   const raw = await renderDoc(doc, { loop: tail === 'cut' });
   if (tail === 'cut' && targetLufs === undefined && ceilingDb === undefined) return { wav: raw, audio: null, info };
@@ -953,12 +871,12 @@ tool('render_stems', 'Render one WAV per instrument, sample or Beat/Bassline tra
       audio = tail === 'wrap' ? dsp.foldTail(dsp.fitLength(audio, frames + barFrames(info, audio.sampleRate)), frames) : dsp.fitLength(audio, frames);
       const file = `${index + 1}_${safeFile(t.getAttribute('name'))}.wav`;
       const wav = dsp.encodeWav(audio);
-      await writeFile(path.join(output, file), wav, { flag: 'wx' });
+      await writeFileAtomic(path.join(output, file), wav, { overwrite: false });
       return { file, track: t.getAttribute('name'), ...measureWav(wav) };
     });
     return { directory: outputDirectory, bars: info.lengthBars, stems };
   } catch (error) {
-    await rm(output, { recursive: true, force: true }); // created by this call
+    await Promise.allSettled([rm(output, { recursive: true, force: true })]); // created by this call
     throw new Error('Stem render failed and its folder was removed: ' + error.message);
   }
 });
@@ -992,7 +910,7 @@ tool('analyze_audio', 'Measure a workspace WAV so you can judge a mix without he
   const result = { audio: file, ...report, warnings: dsp.advise(report, { loop, targetLufs }) };
   if (spectrogram) {
     const png = dsp.spectrogramPng(audio);
-    await writeFile(path.join(root, spectrogram), png, { flag: 'wx' });
+    await writeFileAtomic(path.join(root, spectrogram), png, { overwrite: false });
     result.spectrogram = { file: spectrogram, axes: 'time left to right, 40 Hz (bottom) to 16 kHz (top), log scale, brighter is louder' };
     result[imagesKey] = [png];
   }
@@ -1221,7 +1139,8 @@ tool('build_sound_catalogue', 'Measure factory presets by rendering a test note,
   let own = {};
   try { own = JSON.parse(await readFile(workspaceCatalogue, 'utf8')).sounds; } catch { /* first run */ }
   for (const preset of todo) if (facts[preset]) own[preset] = facts[preset];
-  await writeFile(workspaceCatalogue, JSON.stringify({ lmms: '1.2', sounds: own }));
+  await mkdir(root, { recursive: true });
+  await writeFileAtomic(workspaceCatalogue, JSON.stringify({ lmms: '1.2', sounds: own }), { overwrite: true });
   return { measured: todo.length - failed.length, failed, remaining: all.filter(name => !facts[name]).length, total: all.length };
 });
 
@@ -1242,7 +1161,8 @@ tool('preview_sound', 'Render a short audition of a factory preset, stock sample
     const wav = await renderDoc(doc, { prepared: true });
     const stats = measureWav(wav);
     if (stats.peakDbfs === null) throw new Error('Preview is silent. Try a different MIDI root or sound.');
-    await writeFile(path.join(root, output), wav, { flag: 'wx' });
+    await mkdir(root, { recursive: true });
+    await writeFileAtomic(path.join(root, output), wav, { overwrite: false });
     const audio = dsp.decodeWav(wav);
     const pitch = sample ? undefined : dsp.detectPitch(audio.channels[0], audio.sampleRate, Math.round(audio.sampleRate * 0.1), Math.round(audio.sampleRate * 0.2));
     return { ...(preset ? { preset, tuning: loaded } : { factorySample: sample }), audio: output, ...stats,
@@ -1257,12 +1177,13 @@ tool('preview_sound', 'Render a short audition of a factory preset, stock sample
   }));
   const wav = await renderFathom({ worklet, patch, notes, cutoff: [{ tick: 0, hz: patch.filter.cutoff }],
     secondsPerTick: 1 / 96, durationTicks: 192 });
-  await writeFile(path.join(root, output), wav, { flag: 'wx' });
+  await mkdir(root, { recursive: true });
+  await writeFileAtomic(path.join(root, output), wav, { overwrite: false });
   return { patchId: id, audio: output, ...measureWav(wav) };
 });
 
 // Instrument plugin IDs used by the stock LMMS 1.2 series.
-const instruments = {
+export const instruments = {
   audiofileprocessor: 'Sample playback', bitinvader: 'Wavetable synthesis', carlarack: 'External plugin host',
   carlapatchbay: 'External plugin host', gigplayer: 'GIG sampler', kicker: 'Kick drum synthesis',
   lb302: 'Acid bass synthesis', malletsstk: 'Physical modelling', monstro: 'Subtractive and modulation synthesis',
@@ -1271,7 +1192,7 @@ const instruments = {
   sid: 'SID-style synthesis', tripleoscillator: 'Three-oscillator subtractive synthesis', vestige: 'VST instrument host',
   vibedstrings: 'Plucked string modelling', watsyn: 'Wavetable synthesis', zynaddsubfx: 'Additive and subtractive synthesis',
 };
-async function installedInstrumentIds() {
+export async function installedInstrumentIds() {
   const entries = await readdir(pluginDirectory, { withFileTypes: true });
   const modules = new Set(entries.filter(entry => /\.(dll|so|dylib)$/i.test(entry.name))
     .map(entry => entry.name.toLowerCase().replace(/\.(dll|so|dylib)$/, '')));
@@ -1568,15 +1489,15 @@ tool('export_one_shots', 'Trim edge silence, fade and peak-match source WAVs as 
       wav.writeUInt32LE(take.length * 2, 40);
       for (let i = 0; i < take.length; i++) wav.writeInt16LE(Math.round(take[i] * gain), 44 + i * 2);
       const file = name + '.wav';
-      await writeFile(path.join(destination, file), wav, { flag: 'wx' });
+      await writeFileAtomic(path.join(destination, file), wav, { overwrite: false });
       files.push({ file, source: input, trimStartSeconds: start / sampleRate, ...measureWav(wav) });
     }
     const manifest = { sampleRate: 48000, channels: 1, peakTargetDbfs: peakDb, files };
-    await writeFile(path.join(destination, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', { flag: 'wx' });
+    await writeFileAtomic(path.join(destination, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', { overwrite: false });
     return manifest;
   } catch (error) {
     // The directory was created exclusively by this call.
-    await rm(destination, { recursive: true });
+    await Promise.allSettled([rm(destination, { recursive: true, force: true })]);
     throw error;
   }
 });
@@ -1665,9 +1586,12 @@ edit('set_track_role', 'Declare what an instrument track is for: drums, bass, ha
 });
 
 // ---------- feature modules ----------
-// Every .mjs file in tools/ exports register(context) and adds its own tools and edits. See tools/README.md.
-const toolContext = {
+// Every .mjs file in tools/ that exports register(context) adds its own tools and edits. See tools/README.md.
+export const toolContext = {
   tool, edit, edits, z, dsp, root, generations, imagesKey, explain, moduleGuidance, postSave, exportChecks,
+  logger: log,
+  fsAtomic: { writeFileAtomic, runCommandSafe },
+  config: workspaceConfig,
   schemas: { projectName, wavName, audioOut, workspaceWav, factorySample, folderName, pattern, track, note, volume, presetFile,
     loudnessTarget, ceilingTarget, tailMode, section, pngName },
   project: { load, save, parse, tracks, container, children, elements, add, songInfo, setAnchor, isAnchor, isControl, instrumentOf,
@@ -1675,10 +1599,22 @@ const toolContext = {
   render: { renderDoc, renderMix, forRender, isolate, pool, parallelRenders, writeAudio, hasFfmpeg, masterAudio, barFrames, measureWav },
   music: { expandPattern, parseChord, voiceChord, bassNote, chordQualities },
   sounds: { soundFacts, listPresets, listZynPresets, effectTypes },
-  paths: { samples: samplesDirectory },
+  paths: {
+    workspace: root,
+    samples: samplesDirectory,
+    presets,
+    plugins: pluginDirectory,
+    data: dataDirectory,
+    soundfonts: soundfontsDirectory,
+    lmms,
+    ffmpeg,
+  },
 };
 const toolModules = (await readdir(new URL('./tools/', import.meta.url)).catch(() => [])).filter(name => name.endsWith('.mjs') && !name.endsWith('.test.mjs')).sort();
-for (const file of toolModules) await (await import(new URL('./tools/' + file, import.meta.url))).register(toolContext);
+for (const file of toolModules) {
+  const mod = await import(new URL('./tools/' + file, import.meta.url));
+  if (typeof mod.register === 'function') await mod.register(toolContext);
+}
 tool('apply_edits', 'Apply many edits to one project and save once. Use this for mixing passes and arrangement changes instead of one file per change. If any edit fails, nothing is written. Ops: ' + Object.keys(edits).join(', ') + '. Each edit takes the same arguments as the tool of that name, without project and output.', {
   project: projectName, output: projectName,
   overwrite: z.boolean().default(false).describe('Allow replacing an existing output, including the source project itself.'),
@@ -1768,7 +1704,7 @@ tool('export_game_audio', 'Export a song for a game engine in one call: a seamle
       dsp.applyGain(audio, gain);
       const limited = limiter && ceiling !== undefined ? dsp.limit(audio, ceiling, { wrap }) : null;
       const wav = dsp.encodeWav(audio);
-      await writeFile(path.join(destination, file + '.wav'), wav, { flag: 'wx' });
+      await writeFileAtomic(path.join(destination, file + '.wav'), wav, { overwrite: false });
       if (ogg) await writeAudio(path.join(destination, file + '.ogg'), wav);
       const report = dsp.analyze(audio);
       files.push({ file: file + '.wav', ...(ogg ? { ogg: file + '.ogg' } : {}), role, ...extra, frames: audio.frames,
@@ -1807,10 +1743,10 @@ tool('export_game_audio', 'Export a song for a game engine in one call: a seamle
       loop: { file: `${name}-loop.wav`, startFrame: 0, endFrame: loop.frames, seamless: true, tail: 'folded into the loop start' },
       ...(intro ? { intro: { file: `${name}-intro.wav`, frames: intro.frames, then: `${name}-loop.wav` } } : {}),
       ...(residualDb !== undefined ? { layersSumResidualDb: residualDb } : {}), files, ...(notes.length ? { notes } : {}) };
-    await writeFile(path.join(destination, `${name}.manifest.json`), JSON.stringify(manifest, null, 2) + '\n', { flag: 'wx' });
+    await writeFileAtomic(path.join(destination, `${name}.manifest.json`), JSON.stringify(manifest, null, 2) + '\n', { overwrite: false });
     return { directory: outputDirectory, manifest: `${name}.manifest.json`, ...manifest, ...checks };
   } catch (error) {
-    await rm(destination, { recursive: true, force: true }); // created by this call
+    await Promise.allSettled([rm(destination, { recursive: true, force: true })]); // created by this call
     throw error;
   }
 });
@@ -1893,7 +1829,8 @@ tool('export_midi', 'Export instrument patterns and arranged Beat/Bassline clips
     }
   }
   if (!midi.tracks.some(track => track.notes.length)) throw new Error('No exportable instrument notes');
-  await writeFile(path.join(root, output), midi.toArray(), { flag: 'wx' });
+  await mkdir(root, { recursive: true });
+  await writeFileAtomic(path.join(root, output), Buffer.from(midi.toArray()), { overwrite: false });
   return { file: output, pitchMode, tracks: midi.tracks.map(track => ({ name: track.name, notes: track.notes.length })) };
 });
 const livePipe = process.env.LMMS_LIVE_PIPE;
@@ -2018,4 +1955,17 @@ if (process.platform === 'win32' && livePipe && /^[a-zA-Z0-9_-]+$/.test(livePipe
     ...clip, points, mode: z.enum(['replace', 'upsert']).optional(), progression,
   }, async args => bridgeCall('set_automation_points', args));
 }
-await server.connect(new StdioServerTransport());
+function isExecutedDirectly(metaUrl, argv1 = process.argv[1]) {
+  if (!argv1) return false;
+  try {
+    return realpathSync(argv1) === realpathSync(fileURLToPath(metaUrl));
+  } catch {
+    return path.resolve(argv1).toLowerCase() === path.resolve(fileURLToPath(metaUrl)).toLowerCase();
+  }
+}
+
+if (isExecutedDirectly(import.meta.url)) {
+  await mkdir(root, { recursive: true });
+  log.info('Starting LMMS Music Studio MCP server', { workspace: root, lmms, soundfonts: soundfontsDirectory });
+  await server.connect(new StdioServerTransport());
+}

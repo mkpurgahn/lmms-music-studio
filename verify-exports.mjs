@@ -30,20 +30,10 @@ try {
     ] });
   }
   const source = await call('inspect_arrangement', { project: 'source.mmp' });
-  const profiles = await call('list_composer_profiles', {});
-  assert.equal(profiles.length, 11);
   assert.match(client.getInstructions(), /get_started/);
   const start = await call('get_started', {});
   const tools = new Set((await client.listTools()).tools.map(tool => tool.name));
   assert.ok(Object.values(start.workflows).flat().every(name => tools.has(name)));
-  assert.equal((await call('list_composer_profiles', { query: 'nobuo uematsu' }))[0].id, 'jrpg-battle');
-  for (const profile of profiles) {
-    const sketch = await call('create_composer_sketch', { profileId: profile.id, output: profile.id + '.mmp' });
-    assert.equal(sketch.suggestedFathom.patchId, profile.patchId);
-    const render = await call('render_mix', { project: sketch.project, output: profile.id + '.wav' });
-    assert.equal(render.durationSeconds, 8);
-    assert.ok(Number.isFinite(render.peakDbfs) && render.fullScaleSamples === 0);
-  }
   const trackName = source.tracks[0].name;
   await call('render_mix', { project: 'source.mmp', output: 'reference.wav' });
   const editSample = (project, output, operation, tick, extra = {}) =>

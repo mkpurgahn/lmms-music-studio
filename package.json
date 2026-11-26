@@ -12,13 +12,13 @@
     "midi",
     "composition"
   ],
-  "homepage": "https://github.com/SarutobiSasuke8/lmms-mcp#readme",
+  "homepage": "https://github.com/mkpurgahn/lmms-music-studio#readme",
   "bugs": {
-    "url": "https://github.com/SarutobiSasuke8/lmms-mcp/issues"
+    "url": "https://github.com/mkpurgahn/lmms-music-studio/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/SarutobiSasuke8/lmms-mcp.git"
+    "url": "git+https://github.com/mkpurgahn/lmms-music-studio.git"
   },
   "type": "module",
   "license": "MIT",
@@ -28,12 +28,8 @@
   "files": [
     "server.mjs",
     "fathom.mjs",
-    "vst3-render.py",
-    "compose-cli.mjs",
-    "nightly.mjs",
     "library-server.mjs",
     "catalogue.mjs",
-    "composers.mjs",
     "audio.mjs",
     "k-weight.mjs",
     "lra.mjs",
@@ -53,23 +49,14 @@
     "art/",
     "COMPARISON.md",
     "setup-windows.ps1",
-    "setup-vst3-windows.ps1",
-    "setup-vst3-linux.sh",
     "setup-libraries-windows.ps1",
-    "CHANGELOG.md",
-    "sampler/",
-    "!sampler/test_*.py",
-    "!sampler/check_*.py",
-    "!**/__pycache__",
-    "!**/*.pyc",
-    "!**/*.pyo"
+    "CHANGELOG.md"
   ],
   "engines": {
     "node": ">=20"
   },
   "bin": {
-    "lmms-mcp": "server.mjs",
-    "lmms-compose": "compose-cli.mjs"
+    "lmms-mcp": "server.mjs"
   },
   "scripts": {
     "demo": "node demo.mjs",

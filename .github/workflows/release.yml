@@ -40,11 +40,6 @@ jobs:
           fi
           grep -q "version: '$PKG_VERSION'" server.mjs || { echo "server.mjs does not report $PKG_VERSION" >&2; exit 1; }
       - run: npm test
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-      - name: Sampler tests
-        run: python -m unittest discover -s sampler
       - name: Server starts and lists its tools
         run: node .github/scripts/smoke-server.mjs
       - name: Package holds no audio, tests or private files

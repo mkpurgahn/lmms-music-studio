@@ -1,22 +1,18 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { encodeWav } from '../audio.mjs';
-import { composePiece } from './compose.mjs';
-import { composerProfiles } from '../composers.mjs';
-import { getPersona, listPersonas, loadPersonas } from './personas.mjs';
+import { deniedArtistReferences, getPersona, listPersonas, loadPersonas } from './personas.mjs';
 import { buildCue, cuePersonas, cueProject } from '../scripts/personas/persona-cues.mjs';
 import { chroma, clusterPairs, measureWav, onsets, periodicity, rmsSeries, silentRuns } from '../scripts/personas/persona-measure.mjs';
-import { lmmsAvailable, runDemo, sampledRequirements } from '../scripts/personas/persona-demo.mjs';
+import { lmmsAvailable, runDemo } from '../scripts/personas/persona-demo.mjs';
 
 const ids = ['action-score', 'dark-synth-scifi', 'epic-fantasy', 'horror-suspense'];
 const personas = Object.fromEntries(ids.map(id => [id, getPersona(id)]));
 const licences = JSON.parse(readFileSync(new URL('../licences.json', import.meta.url), 'utf8'));
-const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 test('the four film personas validate and list with the tempo ranges and defaults the brief asks for', () => {
   const expected = { 'action-score': [90, 140, 132], 'horror-suspense': [40, 80, 60], 'epic-fantasy': [80, 130, 108], 'dark-synth-scifi': [70, 110, 92] };
@@ -34,8 +30,8 @@ test('the four film personas validate and list with the tempo ranges and default
 
 test('persona text names no artist, composer, film or label', () => {
   const text = ids.map(id => readFileSync(new URL(`../personas/${id}.json`, import.meta.url), 'utf8')).join('\n').toLowerCase();
-  for (const { name, reference } of Object.values(composerProfiles)) {
-    for (const value of [name.split(' — ')[0], reference]) assert.ok(!text.includes(value.toLowerCase()), 'artist name found in persona data');
+  for (const value of deniedArtistReferences) {
+    assert.ok(!text.includes(value.toLowerCase()), 'artist name found in persona data');
   }
   // Library names are allowed only as ids; credits live in licences.json.
   assert.ok(!/versilian|gossner/.test(text));
@@ -78,21 +74,6 @@ test('library licences are recorded, permissive, not bundled, and hashed', () =>
   for (const sfz of ids.flatMap(id => buildCue(id).parts.filter(part => part.sampled).map(part => part.sampled.sfz))) assert.ok(sfz.startsWith('VSCO-2-CE/'));
 });
 
-test('composePiece with each persona and a fixed seed is stable and uses the persona defaults', () => {
-  const hashes = {};
-  for (const id of ids) {
-    const persona = personas[id], options = { persona: id, seed: persona.testRender.seed, bars: 16 };
-    const piece = composePiece(options);
-    assert.deepEqual(composePiece(options), piece, id);
-    assert.equal(piece.bpm, persona.tempo.default);
-    assert.ok(persona.harmony.keys.includes(piece.key), `${id} key ${piece.key}`);
-    assert.ok(piece.tracks.length >= 6);
-    hashes[id] = digest(piece);
-  }
-  assert.equal(new Set(Object.values(hashes)).size, 4, 'each persona should give a different piece');
-  assert.notDeepEqual(composePiece({ persona: 'action-score', seed: 1, bars: 16 }), composePiece({ persona: 'action-score', seed: 2, bars: 16 }));
-});
-
 test('reference cues are seed-stable, in range and fit LMMS project limits', () => {
   assert.deepEqual(cuePersonas.sort(), ids);
   for (const id of ids) {
@@ -113,7 +94,7 @@ test('reference cues are seed-stable, in range and fit LMMS project limits', () 
       }
     }
     const sampled = cue.parts.filter(part => part.sampled);
-    assert.ok(sampled.length <= 8, 'render_vst3_stems takes eight tracks');
+    assert.ok(sampled.length <= 8, 'sampled parts stay within eight tracks');
     assert.equal(sampled.length > 0, id !== 'dark-synth-scifi');
     for (const part of project.edits) assert.ok(project.tracks.some(track => track.name === part.args.trackName));
   }
@@ -257,13 +238,9 @@ test('measureWav reports levels, sections and signature checks for a rendered fi
   assert.equal(report.clippedSamples, 0);
 });
 
-// ---- live renders: skipped cleanly when LMMS, Decent Sampler or the library is missing ----
-const missingSampler = sampledRequirements();
+// ---- live renders: skipped cleanly when LMMS is missing ----
 const lmmsReady = lmmsAvailable();
 const skipNative = lmmsReady ? false : 'LMMS is not installed (set LMMS_EXECUTABLE)';
-const skipSampled = !lmmsReady ? 'LMMS is not installed (set LMMS_EXECUTABLE)'
-  : missingSampler.length ? `Sampled route needs ${missingSampler.join(', ')}`
-  : process.env.LMMS_PERSONA_LIVE_SAMPLED === '1' ? false : 'Sampled renders take minutes; set LMMS_PERSONA_LIVE_SAMPLED=1 to run them';
 
 test('a native demo renders and passes the sci-fi signature checks', { skip: skipNative, timeout: 180000 }, async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), 'lmms-persona-demo-'));
@@ -280,21 +257,8 @@ test('a native demo renders and passes the sci-fi signature checks', { skip: ski
   }
 });
 
-test('a sampled action demo renders through Decent Sampler with the open library', { skip: skipSampled, timeout: 590000 }, async () => {
-  const workspace = await mkdtemp(path.join(tmpdir(), 'lmms-persona-sampled-'));
-  try {
-    const result = await runDemo('action-score', { workspace, mode: 'sampled' });
-    const route = result.routes.find(item => item.route === 'sampled');
-    assert.ok(route.measured.durationSeconds >= 30 && route.measured.durationSeconds <= 60);
-    assert.ok(route.measured.checks.length >= 3);
-  } finally {
-    await rm(workspace, { recursive: true, force: true });
-  }
-});
-
 test('the demo reports a clean skip when its requirements are missing', async () => {
-  const result = await runDemo('action-score', { workspace: path.join(tmpdir(), 'lmms-persona-skip'), mode: 'both', env: { LMMS_EXECUTABLE: path.join(tmpdir(), 'no-such-lmms.exe') } });
+  const result = await runDemo('action-score', { workspace: path.join(tmpdir(), 'lmms-persona-skip'), mode: 'native', env: { LMMS_EXECUTABLE: path.join(tmpdir(), 'no-such-lmms.exe') } });
   assert.deepEqual(result.routes, []);
   assert.match(result.skipped[0].reason, /LMMS was not found/);
-  assert.ok(sampledRequirements({}).length === 3);
 });

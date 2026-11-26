@@ -149,3 +149,30 @@ test('search filters by role and hides Fathom patches when the bridge is absent'
   assert.equal(searchSounds({ query: 'bell', limit: 10, fathomAvailable: false }, []).total, 0);
   assert.equal(searchSounds({ query: 'bell', limit: 10, fathomAvailable: true }, []).sounds[0].engine, 'fathom');
 });
+
+test('the true-peak limiter holds inter-sample peaks under the ceiling where a sample-peak limiter does not', () => {
+  const make = () => {
+    const audio = tone(12000, 1, 1.4);
+    for (const ch of audio.channels) for (let i = 0; i < ch.length; i++) ch[i] = 1.4 * Math.sin(2 * Math.PI * 12000 * i / 48000 + Math.PI / 4);
+    return audio;
+  };
+  const sampleOnly = make();
+  dsp.limit(sampleOnly, -1);
+  const sampleOnlyTruePeak = dsp.db(dsp.truePeak(sampleOnly));
+  assert.ok(sampleOnlyTruePeak > -0.9, `expected sample-peak limiter to overshoot, got ${sampleOnlyTruePeak}`);
+  const audio = make();
+  const result = dsp.limitTruePeak(audio, -1);
+  const truePeak = dsp.db(dsp.truePeak(audio));
+  assert.ok(truePeak <= -0.99, `true peak ${truePeak} dBTP`);
+  assert.ok(truePeak >= -1.3, `true peak ${truePeak} dBTP is far below the ceiling`);
+  assert.equal(result.truePeakDb, truePeak);
+  assert.ok(result.sampleCeilingDb < -1);
+});
+
+test('the true-peak limiter leaves quiet audio alone', () => {
+  const audio = tone(440, 0.5, 0.3);
+  const before = Float32Array.from(audio.channels[0]);
+  const result = dsp.limitTruePeak(audio, -1);
+  assert.equal(result.limitedSamples, 0);
+  assert.deepEqual(Array.from(audio.channels[0].slice(0, 50)), Array.from(before.slice(0, 50)));
+});

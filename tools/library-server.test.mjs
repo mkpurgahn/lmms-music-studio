@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { resolveRequest, parseRange } from '../library-server.mjs';
+import { mounts, resolveRequest, parseRange } from '../library-server.mjs';
+import { resolveWorkspaceDir, resolveSoundfontsDir } from './workspace-config.mjs';
 
 const folders = { workspace: path.resolve('/music/ws'), stock: path.resolve('/lmms/samples'), library: path.resolve('/libs') };
 
@@ -26,4 +27,10 @@ test('byte ranges are read the way browsers send them', () => {
   assert.equal(parseRange('bytes=5000-', 1000), null);
   assert.equal(parseRange(undefined, 1000), null);
   assert.equal(parseRange('items=0-1', 1000), null);
+});
+
+test('library-server mounts agree with workspace-config defaults', () => {
+  const m = mounts({});
+  assert.equal(m.workspace, resolveWorkspaceDir({}));
+  assert.equal(m.soundfonts, resolveSoundfontsDir({}));
 });

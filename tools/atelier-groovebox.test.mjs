@@ -5,6 +5,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { z } from 'zod';
 import { loadAtelierGroovebox, register } from './atelier-groovebox.mjs';
+import { writeProvenanceSidecar } from './provenance.mjs';
 
 test('a missing optional groovebox checkout gives an actionable message', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'atelier-unavailable-'));
@@ -45,6 +46,12 @@ test('optional Atelier tools build a grid, load a kit and render WAV and MIDI', 
     await assert.rejects(render({ project, output: 'beat.wav' }), { code: 'EEXIST' });
     const recording = Float32Array.from({ length: 1200 }, (_, i) => 0.4 * Math.sin(i * Math.PI / 20));
     await writeFile(path.join(root, 'input.wav'), engine.encodeWav({ sampleRate: 24000, left: recording, right: recording }));
+    await writeProvenanceSidecar(path.join(root, 'input.wav'), {
+      workspaceDir: root,
+      classification: 'pure-synthesis',
+      generatorTool: 'atelier-test-fixture',
+      sources: [{ kind: 'pure-synthesis', pluginOrLibrary: 'test', licence: 'MIT' }],
+    });
     project.pads[0] = { type: 'sample', sampleId: 'local-take', start: 0.2, end: 0.8, tune: 2 };
     await assert.rejects(render({ project, output: 'sample.wav' }), /Missing WAV sample/);
     await render({ project, output: 'sample.wav', samples: { 'local-take': 'input.wav' } });

@@ -173,7 +173,13 @@ test('sidecar: frames, seconds, exclusive end, embedded tags per format', () => 
 async function workspace() {
   const root = await mkdtemp(path.join(tmpdir(), 'loop-points-'));
   const tools = {}, moduleGuidance = [];
-  register({ tool: (name, description, schema, handler) => { tools[name] = { schema: z.object(schema), handler }; }, z, root, moduleGuidance });
+  register({
+    tool: (name, description, schema, handler) => { tools[name] = { schema: z.object(schema), handler }; },
+    z,
+    root,
+    moduleGuidance,
+    env: { LMMS_STRICT_COPYRIGHT: '0' },
+  });
   const call = (name, args) => tools[name].handler(tools[name].schema.parse(args));
   return { root, call, moduleGuidance, cleanup: () => rm(root, { recursive: true, force: true }) };
 }

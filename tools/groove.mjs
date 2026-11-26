@@ -1,6 +1,8 @@
-import { readFile, writeFile, lstat } from 'node:fs/promises';
+import { readFile, lstat } from 'node:fs/promises';
 import path from 'node:path';
 import midiPackage from '@tonejs/midi';
+import { writeFileAtomic } from './fs-atomic.mjs';
+import { auditProjectProvenance, writeProjectOrRenderProvenance } from './provenance.mjs';
 // Groove engine for dance styles: swing templates, humanise, ghost notes, fills, drum layering.
 // Deterministic for a seed. Operates on note arrays (tick, midi, velocity, length).
 const BAR = 192; // ticks per bar at 48 ppq * 4
@@ -153,7 +155,13 @@ export function register({ tool, z, root, project, schemas, moduleGuidance }) {
     // Refuse existing MIDI before creating either output, never replace a workspace asset.
     if (await lstat(path.join(root, midiName)).catch(e => { if (e.code !== 'ENOENT') throw e; })) throw new Error('MIDI output already exists');
     const saved = await project.save(doc, args.output);
-    await writeFile(path.join(root, midiName), midi.toArray(), { flag: 'wx' });
+    const midiPath = path.join(root, midiName);
+    await writeFileAtomic(midiPath, Buffer.from(midi.toArray()), { overwrite: false });
+    const audit = await auditProjectProvenance(doc, { workspaceDir: root, env: process.env });
+    await writeProjectOrRenderProvenance(midiPath, audit, {
+      workspaceDir: root,
+      generatorTool: 'groove',
+    });
     return { ...saved, midi: midiName, notes, bpm: args.bpm };
   }
   tool('apply_groove', 'Apply named swing/clave templates, custom swing percentage or a groove extracted from workspace MIDI. Optionally write MIDI and LMMS output.', {

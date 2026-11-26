@@ -7,6 +7,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import * as dsp from '../audio.mjs';
+import { writeFileAtomic } from './fs-atomic.mjs';
+import { verifyAudioFileProvenance, writeDerivedAudioProvenance } from './provenance.mjs';
 
 const run = promisify(execFile);
 const round = (value, places = 3) => Number(value.toFixed(places));
@@ -561,6 +563,10 @@ export function register({ tool, z, root, schemas, render, moduleGuidance }) {
     if (ogg && !(await render.hasFfmpeg())) throw new Error('OGG output needs ffmpeg. Install it or set LMMS_FFMPEG.');
     const destination = path.join(root, outputDirectory);
     if (existsSync(destination)) throw new Error('Output directory already exists');
+    const inputCheck = await verifyAudioFileProvenance(path.join(root, file), {
+      workspaceDir: root,
+      env: process.env,
+    });
     const { audio: source } = await load(file);
     const sampleRate = source.sampleRate;
     const notes = [];
@@ -637,8 +643,20 @@ export function register({ tool, z, root, schemas, render, moduleGuidance }) {
       const files = [];
       const emit = async (base, audio, role, extra, limited) => {
         const wav = dsp.encodeWav(audio);
-        await writeFile(path.join(destination, base + '.wav'), wav, { flag: 'wx' });
-        if (ogg) await render.writeAudio(path.join(destination, base + '.ogg'), wav);
+        const wavPath = path.join(destination, base + '.wav');
+        await writeFileAtomic(wavPath, wav, { overwrite: false });
+        await writeDerivedAudioProvenance(wavPath, [inputCheck], {
+          workspaceDir: root,
+          generatorTool: 'prepare_loop',
+        });
+        if (ogg) {
+          const oggPath = path.join(destination, base + '.ogg');
+          await render.writeAudio(oggPath, wav);
+          await writeDerivedAudioProvenance(oggPath, [inputCheck], {
+            workspaceDir: root,
+            generatorTool: 'prepare_loop',
+          });
+        }
         const report = dsp.analyze(audio);
         files.push({ file: base + '.wav', ...(ogg ? { ogg: base + '.ogg' } : {}), role, ...extra, frames: audio.frames,
           durationSeconds: report.durationSeconds, integratedLufs: report.integratedLufs, truePeakDbfs: report.truePeakDbfs,
@@ -670,7 +688,7 @@ export function register({ tool, z, root, schemas, render, moduleGuidance }) {
           sourceStartFrame: start, sourceEndFrame: end, sourceStartSeconds: round(start / sampleRate, 4), sourceEndSeconds: round(end / sampleRate, 4) },
         ...(introAudio ? { intro: { file: `${name}-intro.wav`, frames: introAudio.frames, then: `${name}-loop.wav` } } : {}),
         files, ...(notes.length ? { notes } : {}) };
-      await writeFile(path.join(destination, `${name}.manifest.json`), JSON.stringify(manifest, null, 2) + '\n', { flag: 'wx' });
+      await writeFileAtomic(path.join(destination, `${name}.manifest.json`), JSON.stringify(manifest, null, 2) + '\n', { overwrite: false });
       return { directory: outputDirectory, manifest: `${name}.manifest.json`, ...manifest,
         measured: { integratedLufs: loopReport.integratedLufs, truePeakDbfs: loopReport.truePeakDbfs, boundaryJumpDbfs: loopReport.loop.boundaryJumpDbfs,
           startRmsDbfs: loopReport.loop.startRmsDbfs, endRmsDbfs: loopReport.loop.endRmsDbfs, ...(mastering ? { mastering } : {}) },

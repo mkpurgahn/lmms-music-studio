@@ -1,7 +1,9 @@
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { writeFile } from 'node:fs/promises';
 import { decodeWav, encodeWav } from '../audio.mjs';
 import { loadAtelierModule, readWorkspaceFile } from './atelier-groovebox.mjs';
+import { writeFileAtomic } from './fs-atomic.mjs';
+import { verifyAudioFileProvenance, writeDerivedAudioProvenance } from './provenance.mjs';
 
 export function register({ tool, z, root, schemas }) {
   const point = z.strictObject({ seconds: z.number().min(0).max(600), value: z.number().min(0).max(1) });
@@ -13,6 +15,10 @@ export function register({ tool, z, root, schemas }) {
     tailSeconds: z.number().min(0).max(12).default(0),
     outputGainDb: z.number().min(-48).max(12).default(0),
   }, async ({ audio, preset, output, wah, tailSeconds = 0, outputGainDb = 0 }) => {
+    const inputCheck = await verifyAudioFileProvenance(path.join(root, audio), {
+      workspaceDir: root,
+      env: process.env,
+    });
     const engine = await loadAtelierModule('pedalboard', 'src/pedalboard/index.js');
     const saved = JSON.parse(await readWorkspaceFile(root, preset, 256 * 1024));
     if (saved?.format !== 'atelier-pedalboard/1' || !Array.isArray(saved.pedals)) throw new Error('Expected an Atelier pedalboard preset.');
@@ -55,7 +61,13 @@ export function register({ tool, z, root, schemas }) {
         channels[channel][frame] = value;
       }
     }
-    await writeFile(path.join(root, output), encodeWav({ sampleRate: dry.sampleRate, channels }), { flag: 'wx' });
+    const outPath = path.join(root, output);
+    await mkdir(path.dirname(outPath), { recursive: true });
+    await writeFileAtomic(outPath, encodeWav({ sampleRate: dry.sampleRate, channels }), { overwrite: false });
+    await writeDerivedAudioProvenance(outPath, [inputCheck], {
+      workspaceDir: root,
+      generatorTool: 'render_pedal_chain',
+    });
     return { audio, preset, output, sampleRate: dry.sampleRate, frames, peak, clippedSamples, wahPoints: wah?.length ?? 0 };
   });
 }

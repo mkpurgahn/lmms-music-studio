@@ -81,6 +81,12 @@ test('loopback server protects mounted roots and persists sessions, tagged takes
       assert.equal(response.status, 201);
       const meta = JSON.parse(await readFile(path.join(root, `${kind}-one.meta.json`), 'utf8'));
       assert.deepEqual([meta.format, meta.kind, meta.licence, meta.tags], ['lmms-mcp-meta/1', kind, 'own-recording', ['glow', 'loop']]);
+      if (kind === 'take') {
+        const prov = JSON.parse(await readFile(path.join(root, 'take-one.wav.provenance.json'), 'utf8'));
+        assert.equal(prov.schema, 'lmms-music-studio/provenance');
+        assert.equal(prov.classification, 'user-attested-mic-take');
+        assert.equal(prov.strictCompliant, true);
+      }
     }
     const { rows } = await (await request('/api/mix-desk/library')).json();
     assert.ok(rows.some(row => row.url === '/take-one.wav' && row.tags.includes('glow')));

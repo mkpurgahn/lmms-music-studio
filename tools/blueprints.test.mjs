@@ -182,7 +182,8 @@ test('sound suggestions come from the measured catalogue by role and level', () 
   const a = buildArrangement('overworld', { catalogue, sounds: 'suggested' });
   const presets = a.tracks.filter(t => t.voice === 'preset').map(t => t.preset);
   assert.equal(new Set(presets).size, presets.length, 'each track gets a different preset');
-  assert.ok(a.tracks.filter(t => t.role === 'drums').every(t => t.voice === 'sample'));
+  assert.ok(a.tracks.filter(t => t.role === 'drums').every(t => ['kick', 'snare', 'hat', 'clap'].includes(t.voice)));
+  assert.ok(blueprints.every(b => b.tracks.every(t => !t.factorySample)), 'no blueprint references stock factorySample');
 });
 
 // ---------- regressions from the PR 15 review ----------

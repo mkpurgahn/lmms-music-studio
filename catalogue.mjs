@@ -116,6 +116,7 @@ export function searchSounds({ query, engine, role, limit, fathomAvailable }, na
   for (const [list, label] of [[native, 'lmms'], [zyn, 'zyn']]) {
     if (engine && engine !== label) continue;
     for (const preset of list) {
+      if (label === 'lmms' && /^audiofileprocessor\//i.test(preset) && !(process.env.LMMS_STRICT_COPYRIGHT === '0' || process.env.LMMS_STRICT_COPYRIGHT === 'false')) continue;
       const [group, ...rest] = preset.split('/');
       const fact = facts[preset];
       const named = nameTags(label === 'zyn' ? rest[0] : group, rest.at(-1));

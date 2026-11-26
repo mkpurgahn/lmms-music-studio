@@ -5,8 +5,10 @@
 // One sidecar per name: "satie-gymnopedie-1.meta.json" describes satie-gymnopedie-1.wav, .ogg, .mmp and .mid together,
 // because they are the same piece in different formats. A sidecar travels with its sound when the files are copied into
 // a game, two agents tagging different sounds never edit the same file, and a sound with no sidecar is simply untagged.
-import { open, readdir, readFile, writeFile, rename, rm } from 'node:fs/promises';
+import { open, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { writeFileAtomic } from './fs-atomic.mjs';
+import { isStrictCopyright } from './provenance.mjs';
 
 export const metaFormat = 'lmms-mcp-meta/1';
 export const metaSuffix = '.meta.json';
@@ -285,8 +287,8 @@ export function applyMeta(item, entry, { topLevel = false } = {}) {
   return item;
 }
 
-export function register({ tool, z, root, moduleGuidance }) {
-  moduleGuidance.push('When a render is finished, call tag_sound with its title, composer, era, genre, mood, game use, arrangement, licence and credits, so it can be found and filtered on the library page and with list_tagged. Credits are required for CC-BY sounds such as the Salamander piano.');
+export function register({ tool, z, root, moduleGuidance, env = process.env }) {
+  moduleGuidance.push('When a render is finished, call tag_sound with its title, composer, era, genre, mood, game use, arrangement, licence and credits, so it can be found and filtered on the library page and with list_tagged. Note that .meta.json is descriptive metadata only and never proves copyright provenance.');
   const fieldSchema = (name, spec) => {
     let schema = spec.type === 'enum' ? z.enum(spec.values)
       : spec.type === 'list' ? z.union([z.string(), z.array(z.string())])
@@ -314,6 +316,9 @@ export function register({ tool, z, root, moduleGuidance }) {
     if (!siblings?.files.length) throw new Error(`No file named ${safe} in the workspace.`);
     const { meta: patch, errors } = validateMeta(input, { allowNull: mode === 'merge' });
     if (errors.length) throw new Error('Metadata not saved: ' + errors.join('; '));
+    if (isStrictCopyright(env) && patch.licence !== undefined && patch.licence !== null && /^own[-_\s]*recording$/i.test(String(patch.licence).trim())) {
+      throw new Error('Metadata not saved: setting licence to "own-recording" via tag_sound is forbidden in strict copyright mode; only live microphone takes recorded through Mix Desk receive user-attested-mic-take provenance.');
+    }
     const sidecar = sidecarFor(safe), target = path.join(root, sidecar);
     let existing = {}, warning = null;
     if (mode === 'merge' && siblings.sidecar) {
@@ -332,11 +337,7 @@ export function register({ tool, z, root, moduleGuidance }) {
       const noteFull = path.resolve(root, meta.sourceNote);
       if (!(await readFile(noteFull, 'utf8').then(() => true, () => false))) throw new Error(`sourceNote ${meta.sourceNote} does not exist in the workspace.`);
     }
-    // Write to a temporary name first, so a crash never leaves half a sidecar.
-    const temporary = target + '.tmp';
-    await writeFile(temporary, metaText(meta));
-    await rm(target, { force: true });
-    await rename(temporary, target);
+    await writeFileAtomic(target, metaText(meta), { overwrite: true });
     return { sidecar, files: siblings.files, meta: ordered(meta), sourceNote: siblings.sourceNote ?? meta.sourceNote ?? null, ...(warning ? { warning } : {}),
       next: 'Rebuild the library page with build_library_page (overwrite: true) to see it filed.' };
   });

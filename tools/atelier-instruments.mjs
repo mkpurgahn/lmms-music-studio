@@ -1,8 +1,9 @@
 import path from 'node:path';
-import { writeFile } from 'node:fs/promises';
 import midiPackage from '@tonejs/midi';
 import { modelFromDoc } from './arranger-lint.mjs';
 import { loadAtelierModule, readWorkspaceFile } from './atelier-groovebox.mjs';
+import { writeFileAtomic } from './fs-atomic.mjs';
+import { assertProjectProvenance, writeProvenanceSidecar } from './provenance.mjs';
 
 const modules = {
   atelier: 'src/instruments/atelier/index.js',
@@ -28,7 +29,7 @@ function align(render, seconds) {
   return { sampleRate: render.sampleRate, left, right };
 }
 
-export function register({ tool, z, root, schemas, project, dsp }) {
+export function register({ tool, z, root, paths, schemas, project, dsp }) {
   const note = z.strictObject({
     midi: z.number().min(0).max(127), start: z.number().min(0).max(300).default(0),
     duration: z.number().positive().max(300), velocity: z.number().min(0).max(1).optional(),
@@ -39,9 +40,20 @@ export function register({ tool, z, root, schemas, project, dsp }) {
   const performedNote = z.strictObject({ start: z.number().min(0).max(300).optional(), duration: z.number().positive().max(300),
     ...pointPitch, amplitude: z.number().min(0).max(1).optional() });
   const length = z.number().positive().max(600).optional();
-  async function save(render, output, durationSeconds) {
+  async function save(render, output, durationSeconds, generatorTool, pluginOrLibrary) {
     const take = align(render, durationSeconds);
-    await writeFile(path.join(root, output), dsp.encodeWav({ sampleRate: take.sampleRate, channels: [take.left, take.right] }), { flag: 'wx' });
+    const outPath = path.join(root, output);
+    await writeFileAtomic(outPath, dsp.encodeWav({ sampleRate: take.sampleRate, channels: [take.left, take.right] }), { overwrite: false });
+    await writeProvenanceSidecar(outPath, {
+      workspaceDir: root,
+      classification: 'pure-synthesis',
+      generatorTool,
+      sources: [{
+        kind: 'pure-synthesis',
+        pluginOrLibrary,
+        licence: 'unrestricted-synthesis',
+      }],
+    });
     return { file: output, sampleRate: take.sampleRate, frames: take.left.length, channels: 2 };
   }
   tool('render_atelier', 'Render a Fathom, Vesper or Halo voice to a stereo WAV stem. Load a workspace bank or use the installed factory bank.', {
@@ -61,6 +73,13 @@ export function register({ tool, z, root, schemas, project, dsp }) {
       input = selectTrack(midi.tracks, track).map(({ midi, time, duration, velocity }) => ({ midi, start: time, duration, velocity }));
     } else if (projectFile) {
       const doc = await project.load(projectFile);
+      await assertProjectProvenance(doc, {
+        projectName: projectFile,
+        workspaceDir: root,
+        soundfontsDir: paths?.soundfonts,
+        presetsDir: paths?.presets,
+        env: process.env,
+      });
       const secondsPerTick = 60 / (project.songInfo(doc).bpm * 48);
       input = selectTrack(modelFromDoc(doc, project).tracks, track).map(({ midi, tick, length, velocity }) => ({
         midi, start: tick * secondsPerTick, duration: length * secondsPerTick, velocity: Math.min(1, velocity / 100),
@@ -68,7 +87,13 @@ export function register({ tool, z, root, schemas, project, dsp }) {
     } else input = notes;
     const bankData = bank ? await readWorkspaceFile(root, bank, 2 * 1024 * 1024) : undefined;
     const patch = preset && !bankData ? await (await loadInstrument('atelier-factory')).readFactoryAtelierPatch(preset) : undefined;
-    return save(engine.renderAtelier({ model, preset, patch, bank: bankData?.toString('utf8'), notes: input, sampleRate: 48000, seed }), output, durationSeconds);
+    return save(
+      engine.renderAtelier({ model, preset, patch, bank: bankData?.toString('utf8'), notes: input, sampleRate: 48000, seed }),
+      output,
+      durationSeconds,
+      'render_atelier',
+      `atelier:${model ?? 'atelier'}`,
+    );
   });
 
   tool('render_theremin', 'Render a theremin line from explicit notes or a continuous pitch curve to stereo WAV.', {
@@ -79,6 +104,6 @@ export function register({ tool, z, root, schemas, project, dsp }) {
     durationSeconds: length, output: schemas.wavName,
   }, async ({ output, durationSeconds, ...options }) => {
     const engine = await loadInstrument('theremin');
-    return save(engine.renderTheremin({ ...options, sampleRate: 48000 }), output, durationSeconds);
+    return save(engine.renderTheremin({ ...options, sampleRate: 48000 }), output, durationSeconds, 'render_theremin', 'atelier:theremin');
   });
 }

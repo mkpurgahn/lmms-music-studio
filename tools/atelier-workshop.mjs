@@ -1,9 +1,15 @@
 // Atelier Instruments workshop: renderers, effects and note generators from the
 // atelier-instruments repository. The repository is loaded only when a tool is called.
-import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { readFile, realpath, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { writeFileAtomic } from './fs-atomic.mjs';
+import {
+  verifyAudioFileProvenance,
+  writeDerivedAudioProvenance,
+  writeProvenanceSidecar,
+} from './provenance.mjs';
 
 const missing = 'Set LMMS_ATELIER_INSTRUMENTS to the absolute path of an atelier-instruments checkout (one with agent/index.js), or install it so "atelier-instruments/agent" resolves.';
 const maxInputBytes = 256 * 1024 * 1024;
@@ -95,7 +101,7 @@ export function register({ tool, z, root, schemas, project, moduleGuidance }) {
   }).optional().describe('Also add the WAV to a copy of a project as a sample track starting at a bar.');
 
   async function write(output, bytes) {
-    await writeFile(path.join(root, output), bytes, { flag: 'wx' });
+    await writeFileAtomic(path.join(root, output), bytes, { overwrite: false });
   }
 
   async function placeAudio(spec, file, seconds, fallbackName) {
@@ -132,6 +138,16 @@ export function register({ tool, z, root, schemas, project, moduleGuidance }) {
     const api = await loadWorkshop();
     const result = await api.renderInstrument(id, { preset, params, sampleRate: 48000 });
     await write(output, api.encodeResult(result));
+    await writeProvenanceSidecar(path.join(root, output), {
+      workspaceDir: root,
+      classification: 'pure-synthesis',
+      generatorTool: 'atelier_render',
+      sources: [{
+        kind: 'pure-synthesis',
+        pluginOrLibrary: `atelier-workshop:${id}`,
+        licence: 'unrestricted-synthesis',
+      }],
+    });
     const out = { file: output, ...summary(result) };
     if (result.notes) out.notesAvailable = `${result.notes.notes.length} notes. Use atelier_notes for an editable LMMS pattern.`;
     const placed = await placeAudio(spec, output, result.stats.seconds, `${id} ${output.replace(/\.wav$/i, '')}`);
@@ -142,10 +158,18 @@ export function register({ tool, z, root, schemas, project, moduleGuidance }) {
   tool('atelier_process', 'Run a workspace WAV through an Atelier processor (pump-sweep sidechain and filter moves, tape-glitch stops and stutters, robot-voice-vocoder) and write a new 48 kHz WAV. Times in params are seconds from the start of the input. With place, also adds the result to a copy of a project at a bar.', {
     instrument, input: schemas.workspaceWav, ...request, output: schemas.wavName, place,
   }, async ({ instrument: id, input, preset, params, output, place: spec }) => {
+    const inputCheck = await verifyAudioFileProvenance(path.join(root, input), {
+      workspaceDir: root,
+      env: process.env,
+    });
     const api = await loadWorkshop();
     const bytes = await readWorkspace(root, input, maxInputBytes);
     const result = await api.processAudio(id, bytes, { preset, params, sampleRate: 48000 });
     await write(output, api.encodeResult(result));
+    await writeDerivedAudioProvenance(path.join(root, output), [inputCheck], {
+      workspaceDir: root,
+      generatorTool: 'atelier_process',
+    });
     const out = { file: output, input, ...summary(result) };
     const placed = await placeAudio(spec, output, result.stats.seconds, `${id} ${output.replace(/\.wav$/i, '')}`);
     if (placed) out.placed = placed;

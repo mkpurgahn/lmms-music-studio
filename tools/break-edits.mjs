@@ -3,7 +3,9 @@ import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { decodeWav, encodeWav, fade, fitLength, slice } from '../audio.mjs';
+import { writeFileAtomic } from './fs-atomic.mjs';
 import { analyseFrames, ffmpegWorks } from './loop-prep.mjs';
+import { verifyAudioFileProvenance, writeDerivedAudioProvenance } from './provenance.mjs';
 
 const exec = promisify(execFile);
 
@@ -64,11 +66,12 @@ export function readPattern(pattern, count) {
 
 async function readBreak(root, name, limit) {
   const file = path.join(root, name);
+  const inputCheck = await verifyAudioFileProvenance(file, { workspaceDir: root, env: process.env });
   const stat = await lstat(file);
   if (!stat.isFile() || stat.size > 128 * 1024 ** 2) throw new Error('Expected a regular workspace WAV up to 128 MiB');
   const audio = decodeWav(await readFile(file));
   if (!audio.frames || audio.frames / audio.sampleRate > limit) throw new Error(`Expected a WAV up to ${limit} seconds`);
-  return audio;
+  return { audio, inputCheck };
 }
 
 export function register({ tool, z, root, schemas }) {
@@ -78,8 +81,14 @@ export function register({ tool, z, root, schemas }) {
   tool('time_stretch', 'Change a workspace WAV to a target tempo without transposing it. Output has the exact frame count for the BPM ratio. Requires ffmpeg for tempo changes.', {
     ...common, output: schemas.wavName,
   }, async ({ audio, output, sourceBpm, targetBpm }) => {
-    const result = await stretch(await readBreak(root, audio, 120), targetBpm / sourceBpm, root);
-    await writeFile(path.join(root, output), encodeWav(result), { flag: 'wx' });
+    const { audio: decoded, inputCheck } = await readBreak(root, audio, 120);
+    const result = await stretch(decoded, targetBpm / sourceBpm, root);
+    const outPath = path.join(root, output);
+    await writeFileAtomic(outPath, encodeWav(result), { overwrite: false });
+    await writeDerivedAudioProvenance(outPath, [inputCheck], {
+      workspaceDir: root,
+      generatorTool: 'time_stretch',
+    });
     return { file: output, frames: result.frames, sampleRate: result.sampleRate, sourceBpm, targetBpm };
   });
 
@@ -87,7 +96,8 @@ export function register({ tool, z, root, schemas }) {
     ...common, outputDirectory: schemas.folderName, mode: z.enum(['sixteenth', 'transient']).default('sixteenth'),
     pattern: z.string().max(640).optional(),
   }, async ({ audio, sourceBpm, targetBpm, outputDirectory, mode, pattern }) => {
-    const stretched = await stretch(await readBreak(root, audio, 30), targetBpm / sourceBpm, root);
+    const { audio: decoded, inputCheck } = await readBreak(root, audio, 30);
+    const stretched = await stretch(decoded, targetBpm / sourceBpm, root);
     const points = slicePoints(stretched, targetBpm, mode);
     const order = readPattern(pattern, points.length - 1);
     const { sampleRate } = stretched;
@@ -113,9 +123,21 @@ export function register({ tool, z, root, schemas }) {
       pattern: order.map(i => i + 1) };
     await mkdir(directory);
     try {
-      for (let i = 0; i < slices.length; i++) await writeFile(path.join(directory, slices[i].file), encodeWav(fragments[i]), { flag: 'wx' });
-      await writeFile(path.join(directory, 'sequence.wav'), encodeWav({ sampleRate, channels }), { flag: 'wx' });
-      await writeFile(path.join(directory, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', { flag: 'wx' });
+      for (let i = 0; i < slices.length; i++) {
+        const slicePath = path.join(directory, slices[i].file);
+        await writeFileAtomic(slicePath, encodeWav(fragments[i]), { overwrite: false });
+        await writeDerivedAudioProvenance(slicePath, [inputCheck], {
+          workspaceDir: root,
+          generatorTool: 'chop_break',
+        });
+      }
+      const seqPath = path.join(directory, 'sequence.wav');
+      await writeFileAtomic(seqPath, encodeWav({ sampleRate, channels }), { overwrite: false });
+      await writeDerivedAudioProvenance(seqPath, [inputCheck], {
+        workspaceDir: root,
+        generatorTool: 'chop_break',
+      });
+      await writeFileAtomic(path.join(directory, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', { overwrite: false });
     } catch (error) {
       await rm(directory, { recursive: true, force: true });
       throw error;

@@ -9,9 +9,13 @@ const folders = { workspace: path.resolve('/music/ws'), stock: path.resolve('/lm
 test('requests map to the three folders and cannot leave them', () => {
   assert.equal(resolveRequest('/', folders), path.join(folders.workspace, 'sound-library.html'));
   assert.equal(resolveRequest('/latin-perc/Conga%20%231.wav', folders), path.join(folders.workspace, 'latin-perc', 'Conga #1.wav'));
-  assert.equal(resolveRequest('/_stock/drums/kick01.ogg?x=1', folders), path.join(folders.stock, 'drums', 'kick01.ogg'));
+  assert.equal(resolveRequest('/_stock/drums/kick01.ogg?x=1', folders), null, 'strict mode blocks /_stock/');
+  assert.equal(
+    resolveRequest('/_stock/drums/kick01.ogg?x=1', folders, { env: { LMMS_STRICT_COPYRIGHT: '0' } }),
+    path.join(folders.stock, 'drums', 'kick01.ogg'),
+  );
   assert.equal(resolveRequest('/_lib/VSCO2-trumpet/a.wav', folders), path.join(folders.library, 'VSCO2-trumpet', 'a.wav'));
-  assert.equal(resolveRequest('/_stock/../../secret.txt', folders), null);
+  assert.equal(resolveRequest('/_stock/../../secret.txt', folders, { env: { LMMS_STRICT_COPYRIGHT: '0' } }), null);
   assert.equal(resolveRequest('/..%2F..%2Fsecret.txt', folders), null);
   assert.equal(resolveRequest('/_lib/%2e%2e/%2e%2e/x', folders), null);
   assert.equal(resolveRequest('/.lmms-taste.json', folders), null);
@@ -33,4 +37,6 @@ test('library-server mounts agree with workspace-config defaults', () => {
   const m = mounts({});
   assert.equal(m.workspace, resolveWorkspaceDir({}));
   assert.equal(m.soundfonts, resolveSoundfontsDir({}));
+  assert.equal(m.stock, null, 'strict mode disables stock sample mount');
+  assert.ok(mounts({ LMMS_STRICT_COPYRIGHT: '0' }).stock, 'non-strict mode mounts stock samples');
 });

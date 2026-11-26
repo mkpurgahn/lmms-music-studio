@@ -9,6 +9,7 @@ import * as dsp from '../audio.mjs';
 import { validateMeta, mergeMeta, metaText, safeRelative, baseOf, sidecarFor, facetValues, filterEntries, wavSeconds, oggSeconds, audioSeconds,
   scanWorkspace, workspaceMeta, applyMeta, register } from './sound-meta.mjs';
 import { register as registerLibrary } from './library-browser.mjs';
+import { writeProvenanceSidecar } from './provenance.mjs';
 
 const tempDir = () => mkdtemp(path.join(os.tmpdir(), 'lmms-meta-'));
 const tone = seconds => dsp.encodeWav({ sampleRate: 8000, channels: [Float32Array.from({ length: 8000 * seconds }, (_, i) => Math.sin(i / 5) * 0.3)] });
@@ -120,6 +121,7 @@ test('tag_sound writes a checked sidecar and list_tagged finds it', async () => 
     assert.equal(second.meta.composer, 'Erik Satie', 'merge keeps old fields');
     assert.equal(second.meta.gameUse, undefined, 'null removes a field');
     await assert.rejects(call(t, 'tag_sound', { file: 'piece.wav', meta: { era: 'jurassic' } }), /era/);
+    await assert.rejects(call(t, 'tag_sound', { file: 'piece.wav', meta: { licence: 'own-recording' } }), /own-recording.*forbidden/i);
     await assert.rejects(call(t, 'tag_sound', { file: 'piece.wav', meta: { source: 'not a url' } }), /source must be a full http/);
     await assert.rejects(call(t, 'tag_sound', { file: '../piece.wav', meta: { title: 'x' } }), /workspace/);
     await assert.rejects(call(t, 'tag_sound', { file: 'nothing.wav', meta: { title: 'x' } }), /No file named/);
@@ -177,6 +179,14 @@ test('the library page lists tagged pieces with filters and still builds with no
     await writeFile(path.join(root, 'piece.wav'), tone(2));
     await writeFile(path.join(root, 'piece.ogg'), fakeOgg(8000, 16000));
     await writeFile(path.join(root, 'piece-salamander.ogg'), fakeOgg(8000, 40000));
+    for (const name of ['piece.wav', 'piece.ogg', 'piece-salamander.ogg']) {
+      await writeProvenanceSidecar(path.join(root, name), {
+        workspaceDir: root,
+        classification: 'pure-synthesis',
+        generatorTool: 'test-fixture',
+        sources: [{ kind: 'pure-synthesis', pluginOrLibrary: 'test-synth', licence: 'MIT' }],
+      });
+    }
     const plain = await build('plain.html');
     assert.deepEqual(plain.data.items.map(i => i.t).sort(), ['track', 'track']);
     assert.ok(!plain.data.items.some(i => i.z));

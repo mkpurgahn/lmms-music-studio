@@ -7,6 +7,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { workspaceMeta, applyMeta, audioSeconds, baseOf, facets } from './sound-meta.mjs';
 import { writeFileAtomic } from './fs-atomic.mjs';
+import { inspectPresetFile, isStrictCopyright, verifyAudioFileProvenance, writeProvenanceSidecar } from './provenance.mjs';
 
 const audioFile = /\.(ogg|wav|flac|mp3)$/i;
 // What a sample probably is, from the words in its path. First match wins.
@@ -296,7 +297,7 @@ refresh(true);
 `;
 }
 
-export function register({ tool, z, dsp, root, schemas, project, render, sounds, paths, moduleGuidance }) {
+export function register({ tool, z, dsp, root, schemas, project, render, sounds, paths, moduleGuidance, env = process.env }) {
   moduleGuidance.push('When a person wants to see or hear what sounds are available, call build_library_page and give them the page: it lists every preset, sample and library file with filters, search and one-click listening, and they can star picks and paste them back.');
   tool('build_library_page', 'Write one self-contained HTML page that shows the whole sound library with filters: the measured factory presets, stock LMMS samples, workspace samples and files in LMMS_SAMPLE_LIBRARIES. Workspace renders tagged with tag_sound are listed as finished pieces with filters for composer, era, genre, mood, game use, arrangement and licence, their credits and their source note (<name>.source.md); untagged files are listed as before. Search, filter by type, source, role and tag, sort, click or use the arrow keys to listen, star picks and copy them as JSON.', {
     output: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,79}\.html$/i).default('sound-library.html'),
@@ -304,18 +305,55 @@ export function register({ tool, z, dsp, root, schemas, project, render, sounds,
     include: z.array(z.enum(['presets', 'stock', 'workspace', 'libraries'])).min(1).default(['presets', 'stock', 'workspace', 'libraries']),
     overwrite: z.boolean().default(false),
   }, async ({ output, title, include, overwrite }) => {
+    const strict = isStrictCopyright(env);
     const target = path.join(root, output);
     if (!overwrite && existsSync(target)) throw new Error('Output already exists. Pass overwrite: true to rebuild it.');
     const items = [], notes = [], counts = {};
     const add = (name, list) => { counts[name] = list.length; items.push(...list); };
     if (include.includes('presets')) {
-      try { add('presets', presetItems(await sounds.soundFacts())); notes.push('Synth presets have measurements but no audio preview.'); } catch (error) { notes.push(`Presets were skipped: ${error.message}`); }
+      try {
+        const rawFacts = await sounds.soundFacts();
+        let facts = rawFacts;
+        if (strict && rawFacts) {
+          const filtered = {};
+          const hasPresetsDir = Boolean(paths?.presets && existsSync(paths.presets));
+          for (const [name, fact] of Object.entries(rawFacts)) {
+            if (/^audiofileprocessor\//i.test(name)) continue;
+            if (hasPresetsDir) {
+              const check = await inspectPresetFile(path.join(paths.presets, name), {
+                presetsDir: paths.presets,
+                workspaceDir: root,
+                soundfontsDir: paths?.soundfonts,
+                env,
+              });
+              if (!check.allowed) continue;
+            }
+            filtered[name] = fact;
+          }
+          facts = filtered;
+        }
+        add('presets', presetItems(facts));
+        notes.push('Synth presets have measurements but no audio preview.');
+      } catch (error) { notes.push(`Presets were skipped: ${error.message}`); }
     }
     if (include.includes('stock') && paths?.samples) {
-      add('stock', sampleItems(await walk(paths.samples), { type: 'stock', source: 'LMMS stock samples', url: f => fileUrl(f.full), http: f => '/_stock/' + relativeUrl(f.relative) }));
+      if (strict) {
+        add('stock', []);
+        notes.push('Stock LMMS samples are excluded in strict copyright mode.');
+      } else {
+        add('stock', sampleItems(await walk(paths.samples), { type: 'stock', source: 'LMMS stock samples', url: f => fileUrl(f.full), http: f => '/_stock/' + relativeUrl(f.relative) }));
+      }
     }
     if (include.includes('workspace')) {
       let files = (await walk(root, { depth: 2 })).filter(f => !f.relative.startsWith(previewFolder + '/'));
+      if (strict) {
+        const verifiedFiles = [];
+        for (const f of files) {
+          const ok = await verifyAudioFileProvenance(f.full, { workspaceDir: root, env }).then(() => true, () => false);
+          if (ok) verifiedFiles.push(f);
+        }
+        files = verifiedFiles;
+      }
       // A render saved as both WAV and OGG is one track: keep the WAV.
       const wavs = new Set(files.filter(f => /\.wav$/i.test(f.relative)).map(f => f.relative.replace(/\.wav$/i, '')));
       const oggTwins = new Set(files.filter(f => /\.ogg$/i.test(f.relative) && !f.relative.includes('/') && wavs.has(f.relative.replace(/\.ogg$/i, ''))).map(f => f.relative.replace(/\.ogg$/i, '')));
@@ -323,7 +361,7 @@ export function register({ tool, z, dsp, root, schemas, project, render, sounds,
       const pages = new Set((await readdir(root).catch(() => [])).filter(name => name.endsWith('-audition.html') || name.endsWith('-timeline.html')));
       // Metadata sidecars (<name>.meta.json) and source notes (<name>.source.md). Pages with none work as before.
       const { byBase: tagged, problems } = await workspaceMeta(root);
-      if (problems.length) notes.push(`${problems.length} metadata files had problems and were read in part: ${problems.slice(0, 3).join(' | ')}${problems.length > 3 ? ' …' : ''}`);
+      if (problems.length) notes.push(`${problems.length} metadata files had problems and were read in part: ${problems.slice(0, 3).join(' | ')}${problems.length > 3 ? ' ...' : ''}`);
       const list = [];
       for (const f of files) {
         const kind = classifyWorkspace(f.relative), [item] = sampleItems([f], { type: kind.type, source: kind.source, url: x => relativeUrl(x.relative) });
@@ -349,15 +387,20 @@ export function register({ tool, z, dsp, root, schemas, project, render, sounds,
       const pieces = list.filter(i => i.t === 'piece').length;
       if (pieces) counts.pieces = pieces;
     }
-    const libraryRoot = process.env.LMMS_SAMPLE_LIBRARIES;
+    const libraryRoot = env.LMMS_SAMPLE_LIBRARIES;
     if (include.includes('libraries') && libraryRoot && existsSync(libraryRoot)) {
-      const list = [];
-      for (const entry of await readdir(libraryRoot, { withFileTypes: true })) {
-        if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
-        const folder = path.join(libraryRoot, entry.name);
-        list.push(...sampleItems(await walk(folder), { type: 'library', source: entry.name, url: f => fileUrl(f.full), http: f => '/_lib/' + relativeUrl(entry.name + '/' + f.relative) }));
+      if (strict) {
+        add('libraries', []);
+        notes.push('External unverified sample libraries are excluded in strict copyright mode.');
+      } else {
+        const list = [];
+        for (const entry of await readdir(libraryRoot, { withFileTypes: true })) {
+          if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+          const folder = path.join(libraryRoot, entry.name);
+          list.push(...sampleItems(await walk(folder), { type: 'library', source: entry.name, url: f => fileUrl(f.full), http: f => '/_lib/' + relativeUrl(entry.name + '/' + f.relative) }));
+        }
+        add('libraries', list);
       }
-      add('libraries', list);
     }
     // Presets play the clip build_library_previews made for them, when there is one.
     const made = new Set((await readdir(path.join(root, previewFolder)).catch(() => [])));
@@ -410,6 +453,16 @@ export function register({ tool, z, dsp, root, schemas, project, render, sounds,
         const target = path.join(folder, previewName(job.type, job.id) + ext);
         await rm(target, { force: true });
         await render.writeAudio(target, dsp.encodeWav(clip));
+        await writeProvenanceSidecar(target, {
+          workspaceDir: root,
+          classification: 'pure-synthesis',
+          generatorTool: 'build_library_previews',
+          sources: [{
+            kind: 'pure-synthesis',
+            pluginOrLibrary: job.id,
+            licence: 'unrestricted-synthesis',
+          }],
+        });
       } catch (error) { failed.push({ type: job.type, id: job.id, reason: String(error.message).slice(0, 120) }); }
     });
     // Failed clips are remembered so later calls do not retry them for ever.

@@ -16,15 +16,15 @@
       "motif": "1:2 3:2 5:4 6:2 5:2 3:4 2:2 3:2 1:4 r:8",
       "progressions": { "main": "I V vi IV", "contrast": "IV I ii V" },
       "tracks": [
-        { "name": "Kick", "role": "drums", "drum": "kick", "voice": "sample", "factorySample": "drums/kick01.ogg", "volume": 52, "length": 96 },
-        { "name": "Snare", "role": "drums", "drum": "snare", "voice": "sample", "factorySample": "drums/snare01.ogg", "volume": 36, "length": 96 },
-        { "name": "Hats", "role": "drums", "drum": "hat", "voice": "sample", "factorySample": "drums/hihat_closed01.ogg", "volume": 43, "pan": 18, "length": 24 },
-        { "name": "Crash", "role": "drums", "drum": "crash", "voice": "sample", "factorySample": "drums/crash01.ogg", "volume": 20, "pan": -20, "length": 384 },
+        { "name": "Kick", "role": "drums", "drum": "kick", "voice": "kick", "volume": 72, "length": 96 },
+        { "name": "Snare", "role": "drums", "drum": "snare", "voice": "snare", "volume": 64, "length": 96 },
+        { "name": "Hats", "role": "drums", "drum": "hat", "voice": "hat", "volume": 52, "pan": 18, "length": 24 },
+        { "name": "Crash", "role": "drums", "drum": "crash", "voice": "hat", "volume": 38, "pan": -20, "length": 384 },
         { "name": "Bass", "role": "bass", "voice": "bass", "volume": 56 },
         { "name": "Chords", "role": "harmony", "voice": "pad", "volume": 23, "pan": -14 },
-        { "name": "Lead", "role": "lead", "voice": "preset", "preset": "TripleOscillator/PluckArpeggio.xpf", "level": -11, "prefer": ["bright"] },
+        { "name": "Lead", "role": "lead", "voice": "preset", "preset": "TripleOscillator/MoveYourBody.xpf", "level": -11, "prefer": ["bright"] },
         { "name": "Counter", "role": "counter", "voice": "pad", "volume": 26, "pan": 16 },
-        { "name": "Sparkle", "role": "texture", "voice": "preset", "preset": "TripleOscillator/SquarePing.xpf", "level": -16, "pan": 24, "prefer": ["bright"] }
+        { "name": "Sparkle", "role": "texture", "voice": "preset", "preset": "BitInvader/bell.xpf", "level": -16, "pan": 24, "prefer": ["bright"] }
       ],
       "drums": {
         "light": { "kick": "X-------X-------", "hat": "--x---x---x---x-" },
@@ -50,10 +50,10 @@
       "motif": "1:2 1:1 2:1 3:2 5:2 4:2 3:2 2:2 7,:2 1:4 r:12",
       "progressions": { "main": "i VI III VII", "contrast": "iv VI VII i" },
       "tracks": [
-        { "name": "Kick", "role": "drums", "drum": "kick", "voice": "sample", "factorySample": "drums/kick02.ogg", "volume": 52, "length": 72 },
-        { "name": "Snare", "role": "drums", "drum": "snare", "voice": "sample", "factorySample": "drums/snare02.ogg", "volume": 34, "length": 96 },
-        { "name": "Hats", "role": "drums", "drum": "hat", "voice": "sample", "factorySample": "drums/hihat_closed02.ogg", "volume": 41, "pan": 18, "length": 24 },
-        { "name": "Crash", "role": "drums", "drum": "crash", "voice": "sample", "factorySample": "drums/crash02.ogg", "volume": 18, "pan": -20, "length": 384 },
+        { "name": "Kick", "role": "drums", "drum": "kick", "voice": "kick", "volume": 72, "length": 72 },
+        { "name": "Snare", "role": "drums", "drum": "snare", "voice": "snare", "volume": 62, "length": 96 },
+        { "name": "Hats", "role": "drums", "drum": "hat", "voice": "hat", "volume": 50, "pan": 18, "length": 24 },
+        { "name": "Crash", "role": "drums", "drum": "crash", "voice": "hat", "volume": 36, "pan": -20, "length": 384 },
         { "name": "Bass", "role": "bass", "voice": "bass", "volume": 54 },
         { "name": "Stabs", "role": "harmony", "voice": "pad", "volume": 23, "pan": -12 },
         { "name": "Lead", "role": "lead", "voice": "preset", "preset": "TripleOscillator/Rough!.xpf", "level": -11, "prefer": ["bright"] },
@@ -84,11 +84,11 @@
       "motif": "1:3 1:1 2:2 1:2 7,:4 1:4 5:4 4:2 2:2 r:8",
       "progressions": { "main": "i II i vii", "contrast": "iv II iv vo" },
       "tracks": [
-        { "name": "Kick", "role": "drums", "drum": "kick", "voice": "sample", "factorySample": "drums/kick_hard01.ogg", "volume": 46, "length": 72 },
-        { "name": "Snare", "role": "drums", "drum": "snare", "voice": "sample", "factorySample": "drums/snare_harsh01.ogg", "volume": 30, "length": 96 },
-        { "name": "Hats", "role": "drums", "drum": "hat", "voice": "sample", "factorySample": "drums/hihat_closed03.ogg", "volume": 38, "pan": 18, "length": 24 },
-        { "name": "Toms", "role": "drums", "drum": "tom", "voice": "sample", "factorySample": "drums/tom_low01.ogg", "volume": 34, "pan": -14, "length": 96 },
-        { "name": "Crash", "role": "drums", "drum": "crash", "voice": "sample", "factorySample": "drums/crash01.ogg", "volume": 18, "pan": -20, "length": 384 },
+        { "name": "Kick", "role": "drums", "drum": "kick", "voice": "kick", "volume": 70, "length": 72 },
+        { "name": "Snare", "role": "drums", "drum": "snare", "voice": "snare", "volume": 60, "length": 96 },
+        { "name": "Hats", "role": "drums", "drum": "hat", "voice": "hat", "volume": 48, "pan": 18, "length": 24 },
+        { "name": "Toms", "role": "drums", "drum": "tom", "voice": "kick", "volume": 56, "pan": -14, "length": 96 },
+        { "name": "Crash", "role": "drums", "drum": "crash", "voice": "hat", "volume": 36, "pan": -20, "length": 384 },
         { "name": "Bass", "role": "bass", "voice": "bass", "volume": 56 },
         { "name": "Pad", "role": "harmony", "voice": "pad", "volume": 23, "pan": -10 },
         { "name": "Lead", "role": "lead", "voice": "preset", "preset": "TripleOscillator/PMFMFTWbass.xpf", "level": -11 },
@@ -119,12 +119,12 @@
       "motif": "3:4 2:2 1:2 2:4 5,:4 6,:4 1:4 r:8",
       "progressions": { "main": "I vi IV V", "contrast": "ii V I vi" },
       "tracks": [
-        { "name": "Kick", "role": "drums", "drum": "kick", "voice": "sample", "factorySample": "drums/kick_soft01.ogg", "volume": 44, "length": 96 },
-        { "name": "Rim", "role": "drums", "drum": "rim", "voice": "sample", "factorySample": "drums/rim01.ogg", "volume": 30, "pan": -12, "length": 48 },
-        { "name": "Shaker", "role": "drums", "drum": "shaker", "voice": "sample", "factorySample": "drums/shaker01.ogg", "volume": 41, "pan": 20, "length": 24 },
+        { "name": "Kick", "role": "drums", "drum": "kick", "voice": "kick", "volume": 58, "length": 96 },
+        { "name": "Rim", "role": "drums", "drum": "rim", "voice": "clap", "volume": 44, "pan": -12, "length": 48 },
+        { "name": "Shaker", "role": "drums", "drum": "shaker", "voice": "hat", "volume": 46, "pan": 20, "length": 24 },
         { "name": "Bass", "role": "bass", "voice": "bass", "volume": 52 },
         { "name": "Keys", "role": "harmony", "voice": "pluck", "volume": 23, "pan": -14 },
-        { "name": "Melody", "role": "lead", "voice": "preset", "preset": "TripleOscillator/Bell.xpf", "level": -11, "prefer": ["warm"] },
+        { "name": "Melody", "role": "lead", "voice": "preset", "preset": "BitInvader/epiano.xpf", "level": -11, "prefer": ["warm"] },
         { "name": "Counter", "role": "counter", "voice": "pad", "volume": 22, "pan": 16 }
       ],
       "drums": {
@@ -152,9 +152,9 @@
       "motif": "1:8 2:4 1:8 r:12 5,:4 6,:4 5,:8 r:16",
       "progressions": { "main": "i i II i", "contrast": "iv iv II II" },
       "tracks": [
-        { "name": "Heartbeat", "role": "drums", "drum": "kick", "voice": "sample", "factorySample": "drums/kick_soft02.ogg", "volume": 46, "length": 96 },
-        { "name": "Rim", "role": "drums", "drum": "rim", "voice": "sample", "factorySample": "drums/sidestick01.ogg", "volume": 30, "pan": 22, "length": 48 },
-        { "name": "Tick", "role": "drums", "drum": "hat", "voice": "sample", "factorySample": "drums/hihat_closed03.ogg", "volume": 30, "pan": -18, "length": 24 },
+        { "name": "Heartbeat", "role": "drums", "drum": "kick", "voice": "kick", "volume": 60, "length": 96 },
+        { "name": "Rim", "role": "drums", "drum": "rim", "voice": "clap", "volume": 42, "pan": 22, "length": 48 },
+        { "name": "Tick", "role": "drums", "drum": "hat", "voice": "hat", "volume": 40, "pan": -18, "length": 24 },
         { "name": "Bass", "role": "bass", "voice": "bass", "volume": 54 },
         { "name": "Pad", "role": "harmony", "voice": "pad", "volume": 19, "pan": -10 },
         { "name": "Lead", "role": "lead", "voice": "preset", "preset": "Monstro/ScaryBell.xpf", "level": -11, "prefer": ["dark"] },
@@ -184,15 +184,15 @@
       "motif": "5,:4 1:4 2:2 3:2 5:4 4:4 3:4 2:4 r:4",
       "progressions": { "main": "I IV vi V", "contrast": "vi IV I V" },
       "tracks": [
-        { "name": "Kick", "role": "drums", "drum": "kick", "voice": "sample", "factorySample": "drums/kick_long01.ogg", "volume": 44, "length": 96 },
-        { "name": "Snare", "role": "drums", "drum": "snare", "voice": "sample", "factorySample": "drums/snare_muffled01.ogg", "volume": 30, "length": 96 },
-        { "name": "Ride", "role": "drums", "drum": "ride", "voice": "sample", "factorySample": "drums/ride01.ogg", "volume": 30, "pan": 20, "length": 96 },
-        { "name": "Crash", "role": "drums", "drum": "crash", "voice": "sample", "factorySample": "drums/crash01.ogg", "volume": 16, "pan": -20, "length": 384 },
+        { "name": "Kick", "role": "drums", "drum": "kick", "voice": "kick", "volume": 62, "length": 96 },
+        { "name": "Snare", "role": "drums", "drum": "snare", "voice": "snare", "volume": 54, "length": 96 },
+        { "name": "Ride", "role": "drums", "drum": "ride", "voice": "hat", "volume": 44, "pan": 20, "length": 96 },
+        { "name": "Crash", "role": "drums", "drum": "crash", "voice": "hat", "volume": 34, "pan": -20, "length": 384 },
         { "name": "Bass", "role": "bass", "voice": "bass", "volume": 52 },
-        { "name": "Organ", "role": "harmony", "voice": "preset", "preset": "TripleOscillator/Harmonium.xpf", "level": -24, "pan": -12 },
+        { "name": "Organ", "role": "harmony", "voice": "preset", "preset": "OpulenZ/Combo_organ.xpf", "level": -24, "pan": -12 },
         { "name": "Theme", "role": "lead", "voice": "preset", "preset": "TripleOscillator/HiPad.xpf", "level": -11 },
         { "name": "Counter", "role": "counter", "voice": "pad", "volume": 24, "pan": 16 },
-        { "name": "Arp", "role": "texture", "voice": "preset", "preset": "TripleOscillator/SquarePing.xpf", "level": -17, "pan": 24 }
+        { "name": "Arp", "role": "texture", "voice": "preset", "preset": "BitInvader/pluck.xpf", "level": -17, "pan": 24 }
       ],
       "drums": {
         "ride": { "ride": "x---o---x---o---" },
@@ -217,14 +217,14 @@
       "motif": "3:2 5:2 r:2 6:2 5:4 r:4 3:2 2:2 1:4 r:8",
       "progressions": { "main": "Imaj7 vi7 ii7 V7", "contrast": "IVmaj7 iii7 ii7 V7" },
       "tracks": [
-        { "name": "Kick", "role": "drums", "drum": "kick", "voice": "sample", "factorySample": "drums/kick_soft01.ogg", "volume": 44, "length": 96 },
-        { "name": "Rim", "role": "drums", "drum": "rim", "voice": "sample", "factorySample": "drums/snare_rim01.ogg", "volume": 28, "pan": -10, "length": 48 },
-        { "name": "Hats", "role": "drums", "drum": "hat", "voice": "sample", "factorySample": "drums/hihat_closed04.ogg", "volume": 35, "pan": 18, "length": 24 },
+        { "name": "Kick", "role": "drums", "drum": "kick", "voice": "kick", "volume": 58, "length": 96 },
+        { "name": "Rim", "role": "drums", "drum": "rim", "voice": "clap", "volume": 42, "pan": -10, "length": 48 },
+        { "name": "Hats", "role": "drums", "drum": "hat", "voice": "hat", "volume": 46, "pan": 18, "length": 24 },
         { "name": "Bass", "role": "bass", "voice": "bass", "volume": 52 },
         { "name": "Keys", "role": "harmony", "voice": "pad", "volume": 19, "pan": -14 },
-        { "name": "Lead", "role": "lead", "voice": "preset", "preset": "TripleOscillator/Bell.xpf", "level": -11, "prefer": ["warm"] },
+        { "name": "Lead", "role": "lead", "voice": "preset", "preset": "BitInvader/epiano.xpf", "level": -11, "prefer": ["warm"] },
         { "name": "Counter", "role": "counter", "voice": "pluck", "volume": 26, "pan": 16 },
-        { "name": "Shimmer", "role": "texture", "voice": "preset", "preset": "TripleOscillator/SquarePing.xpf", "level": -18, "pan": 24 }
+        { "name": "Shimmer", "role": "texture", "voice": "preset", "preset": "BitInvader/bell.xpf", "level": -18, "pan": 24 }
       ],
       "drums": {
         "hats": { "hat": "o-x-o-x-o-x-o-x-" },
@@ -250,9 +250,9 @@
       "motif": "1:2 3:2 5:2 1':2 7:2 5:2 6:4 5:2 3:2 4:2 2:2 1:4 r:4",
       "progressions": { "main": "I vi IV V", "contrast": "IV V iii vi" },
       "tracks": [
-        { "name": "Kick", "role": "drums", "drum": "kick", "voice": "sample", "factorySample": "drums/kick03.ogg", "volume": 48, "length": 48 },
-        { "name": "Snare", "role": "drums", "drum": "snare", "voice": "sample", "factorySample": "drums/snare_short01.ogg", "volume": 30, "length": 48 },
-        { "name": "Hats", "role": "drums", "drum": "hat", "voice": "sample", "factorySample": "drums/hihat_closed05.ogg", "volume": 38, "pan": 16, "length": 12 },
+        { "name": "Kick", "role": "drums", "drum": "kick", "voice": "kick", "volume": 68, "length": 48 },
+        { "name": "Snare", "role": "drums", "drum": "snare", "voice": "snare", "volume": 56, "length": 48 },
+        { "name": "Hats", "role": "drums", "drum": "hat", "voice": "hat", "volume": 48, "pan": 16, "length": 12 },
         { "name": "Bass", "role": "bass", "voice": "bass", "volume": 50 },
         { "name": "Arp", "role": "texture", "voice": "pluck", "volume": 16, "pan": -18 },
         { "name": "Square", "role": "lead", "voice": "preset", "preset": "SID/Lead.xpf", "level": -11 },
@@ -284,12 +284,12 @@
       "motif": "5,:2 1:2 3:2 5:6 3:2 5:2",
       "progressions": { "main": "I IV", "close": "V I" },
       "tracks": [
-        { "name": "Kick", "role": "drums", "drum": "kick", "voice": "sample", "factorySample": "drums/kick01.ogg", "volume": 48, "length": 96 },
-        { "name": "Snare", "role": "drums", "drum": "snare", "voice": "sample", "factorySample": "drums/snare01.ogg", "volume": 30, "length": 48 },
-        { "name": "Crash", "role": "drums", "drum": "crash", "voice": "sample", "factorySample": "drums/crash01.ogg", "volume": 22, "pan": -16, "length": 384 },
+        { "name": "Kick", "role": "drums", "drum": "kick", "voice": "kick", "volume": 70, "length": 96 },
+        { "name": "Snare", "role": "drums", "drum": "snare", "voice": "snare", "volume": 58, "length": 48 },
+        { "name": "Crash", "role": "drums", "drum": "crash", "voice": "hat", "volume": 40, "pan": -16, "length": 384 },
         { "name": "Bass", "role": "bass", "voice": "bass", "volume": 54 },
         { "name": "Brass", "role": "harmony", "voice": "pad", "volume": 25, "pan": -10 },
-        { "name": "Fanfare", "role": "lead", "voice": "preset", "preset": "TripleOscillator/PluckArpeggio.xpf", "level": -11, "prefer": ["bright"] }
+        { "name": "Fanfare", "role": "lead", "voice": "preset", "preset": "SID/CheesyGuitar.xpf", "level": -11, "prefer": ["bright"] }
       ],
       "drums": {
         "fanfare": { "kick": "X-------X-------", "snare": "--------x-x-xxXX", "crash": "start" },

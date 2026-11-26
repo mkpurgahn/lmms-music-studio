@@ -20,6 +20,23 @@ import { effectTypes, resolveParams, describeEffects } from './effects.mjs';
 import { createLogger } from './tools/logger.mjs';
 import { runCommandSafe, writeFileAtomic } from './tools/fs-atomic.mjs';
 import { SYNTH_DRUM_VOICES, writeSynthDrumElement } from './tools/drum-kits.mjs';
+import * as provenanceEngine from './tools/provenance.mjs';
+import {
+  FORBIDDEN_PLUGINS,
+  LEGAL_SCOPE_NOTE,
+  PURE_SYNTH_PLUGINS,
+  assertProjectProvenance,
+  assertRealpathContained,
+  auditProjectProvenance,
+  inspectPresetFile,
+  isStrictCopyright,
+  provenancePathFor,
+  sha256File,
+  verifyAudioFileProvenance,
+  writeDerivedAudioProvenance,
+  writeProjectOrRenderProvenance,
+  writeProvenanceSidecar,
+} from './tools/provenance.mjs';
 import { prepareSf2InstrumentSpec, resolveSf2Path, sf2PathPattern, writeSf2PlayerElement } from './tools/soundfont.mjs';
 import * as workspaceConfig from './tools/workspace-config.mjs';
 import {
@@ -169,6 +186,13 @@ export async function load(project) {
   return parse(source.toString('utf8'));
 }
 export async function save(doc, output, overwrite = false) {
+  const provenanceReport = await assertProjectProvenance(doc, {
+    projectName: output,
+    workspaceDir: root,
+    soundfontsDir: soundfontsDirectory,
+    presetsDir: presets,
+    env: process.env,
+  });
   const source = Buffer.from(xml.serializeToString(doc), 'utf8');
   if (source.length > maxProjectBytes) throw new Error('Project exceeds 32 MiB');
   let file = source;
@@ -178,7 +202,12 @@ export async function save(doc, output, overwrite = false) {
     file = Buffer.concat([prefix, deflateSync(source)]);
   }
   await mkdir(root, { recursive: true });
-  await writeFileAtomic(path.join(root, output), file, { overwrite });
+  const targetPath = path.join(root, output);
+  await writeFileAtomic(targetPath, file, { overwrite });
+  await writeProjectOrRenderProvenance(targetPath, provenanceReport, {
+    workspaceDir: root,
+    generatorTool: 'save',
+  });
   return { project: output };
 }
 function tracks(doc) {
@@ -239,9 +268,15 @@ function addPatternClip(target, { name, bar, bars }) {
 async function checkTrack(item) {
   if (item.voice === 'sample') {
     if (Boolean(item.sample) === Boolean(item.factorySample)) throw new Error(`Track "${item.name}": sample tracks need exactly one of sample or factorySample`);
+    if (item.factorySample && isStrictCopyright(process.env)) {
+      throw new Error(`Track "${item.name}": stock sample "${item.factorySample}" is forbidden in strict copyright mode`);
+    }
     const file = item.sample ? path.join(root, item.sample) : path.join(samplesDirectory, item.factorySample);
     if (!(await lstat(file).catch(() => null))?.isFile()) {
       throw new Error(`Track "${item.name}": ${item.sample ? 'workspace WAV' : 'stock sample'} "${item.sample ?? item.factorySample}" was not found`);
+    }
+    if (item.sample) {
+      await verifyAudioFileProvenance(file, { workspaceDir: root, env: process.env });
     }
   } else if (item.sample || item.factorySample) throw new Error(`Track "${item.name}": sample and factorySample need voice "sample"`);
   if ((item.voice === 'preset') !== Boolean(item.preset)) throw new Error(`Track "${item.name}": voice "preset" and the preset field go together`);
@@ -383,14 +418,15 @@ tool('get_started', 'Read the LMMS Music Studio MCP workflow and discover the lo
   setup: {
     lmmsExecutable: lmms,
     soundfontsDirectory,
+    strictCopyright: isStrictCopyright(process.env),
     fathomConfigured: Boolean(process.env.LMMS_FATHOM_WORKLET && existsSync(process.env.LMMS_FATHOM_WORKLET)),
-    liveToolsEnabled: process.platform === 'win32' && /^[a-zA-Z0-9_-]+$/.test(process.env.LMMS_LIVE_PIPE ?? ''),
+    liveToolsEnabled: !isStrictCopyright(process.env) && process.platform === 'win32' && /^[a-zA-Z0-9_-]+$/.test(process.env.LMMS_LIVE_PIPE ?? ''),
   },
   workflows: {
     plan: ['resolve_chords', 'search_sounds', 'list_sf2_presets', 'list_drum_kits', 'list_samples', 'preview_sound'],
     compose: ['create_project', 'create_drum_kit', 'set_sf2_instrument', 'inspect_arrangement', 'apply_edits'],
     mix: ['inspect_effects', 'list_effects', 'automate_track', 'render_mix', 'analyze_audio'],
-    deliver: ['export_game_audio', 'render_stems', 'export_midi', 'export_one_shots'],
+    deliver: ['audit_copyright', 'export_game_audio', 'render_stems', 'export_midi', 'export_one_shots'],
     external: ['list_external_tools', 'install_soundfont_pack', 'list_soundfonts', 'render_soundfont'],
   },
 }));
@@ -449,6 +485,13 @@ tool('render_fathom_track', 'Render LMMS piano-roll notes through Fathom Atelier
   if (Boolean(id) === Boolean(patchFile)) throw new Error('Supply exactly one of patchId or patchFile');
   if (existsSync(path.join(root, output)) || existsSync(path.join(root, audio))) throw new Error('Output already exists');
   const doc = await load(project);
+  await assertProjectProvenance(doc, {
+    projectName: project,
+    workspaceDir: root,
+    soundfontsDir: soundfontsDirectory,
+    presetsDir: presets,
+    env: process.env,
+  });
   const [head] = children(doc.documentElement, 'head');
   const bpm = Number(head?.getAttribute('bpm') || 140);
   if (children(head, 'bpm').length || !Number.isFinite(bpm) || bpm < 45 || bpm > 240 ||
@@ -508,12 +551,27 @@ tool('render_fathom_track', 'Render LMMS piano-roll notes through Fathom Atelier
   add(target, 'sampletco', { pos: 0, len: durationTicks, muted: 0,
     src: path.join(root, audio).replaceAll('\\', '/') });
   const filename = path.join(root, audio);
+  const audioProvenancePath = provenancePathFor(filename);
   await mkdir(root, { recursive: true });
   await writeFileAtomic(filename, wav, { overwrite: false });
   try {
+    await writeProvenanceSidecar(filename, {
+      workspaceDir: root,
+      classification: 'pure-synthesis',
+      generatorTool: 'render_fathom_track',
+      sources: [{
+        track: trackName,
+        kind: 'pure-synthesis',
+        pluginOrLibrary: `fathom:${patch.model}`,
+        licence: 'unrestricted-synthesis',
+      }],
+    });
     await save(doc, output);
   } catch (error) {
-    await Promise.allSettled([rm(filename, { force: true })]);
+    await Promise.allSettled([
+      rm(filename, { force: true }),
+      rm(audioProvenancePath, { force: true }),
+    ]);
     throw error;
   }
   return { project: output, audio, track: name, notes: notes.length, cutoff, ...measureWav(wav) };
@@ -641,7 +699,18 @@ async function listPresets() {
     const entries = await readdir(path.join(presets, group.name), { withFileTypes: true });
     return entries.filter(entry => entry.isFile()).map(entry => group.name + '/' + entry.name);
   }));
-  return files.flat().filter(name => name.endsWith('.xpf') && presetFile.safeParse(name).success).sort();
+  const all = files.flat().filter(name => name.endsWith('.xpf') && presetFile.safeParse(name).success).sort();
+  if (!isStrictCopyright(process.env)) return all;
+  const inspected = await Promise.all(all.map(async name => {
+    const check = await inspectPresetFile(path.join(presets, name), {
+      presetsDir: presets,
+      workspaceDir: root,
+      soundfontsDir: soundfontsDirectory,
+      env: process.env,
+    });
+    return check.allowed ? name : null;
+  }));
+  return inspected.filter(Boolean);
 }
 async function listZynPresets() {
   const bank = path.join(presets, 'ZynAddSubFX');
@@ -650,7 +719,18 @@ async function listZynPresets() {
     const entries = await readdir(path.join(bank, group.name), { withFileTypes: true });
     return entries.filter(entry => entry.isFile()).map(entry => `ZynAddSubFX/${group.name}/${entry.name}`);
   }));
-  return files.flat().filter(name => name.endsWith('.xiz') && presetFile.safeParse(name).success).sort();
+  const all = files.flat().filter(name => name.endsWith('.xiz') && presetFile.safeParse(name).success).sort();
+  if (!isStrictCopyright(process.env)) return all;
+  const inspected = await Promise.all(all.map(async name => {
+    const check = await inspectPresetFile(path.join(presets, name), {
+      presetsDir: presets,
+      workspaceDir: root,
+      soundfontsDir: soundfontsDirectory,
+      env: process.env,
+    });
+    return check.allowed ? name : null;
+  }));
+  return inspected.filter(Boolean);
 }
 tool('list_presets', 'List installed factory presets: native .xpf paths, plus ZynAddSubFX bank folders with counts (pass a bank to list its .xiz patches).', {
   zynBank: z.string().regex(/^[\w -]+$/).optional(),
@@ -718,7 +798,15 @@ function activeSf2TrackIndices(doc) {
   });
   return indices;
 }
-export async function renderDoc(doc, { loop = true, prepared = false, _skipSf2Guard = false } = {}) {
+export async function renderDoc(doc, { loop = true, prepared = false, _skipSf2Guard = false, _provenanceChecked = false } = {}) {
+  if (!_provenanceChecked) {
+    await assertProjectProvenance(doc, {
+      workspaceDir: root,
+      soundfontsDir: soundfontsDirectory,
+      presetsDir: presets,
+      env: process.env,
+    });
+  }
   const copy = await stageNonAsciiSources(prepared ? parse(xml.serializeToString(doc)) : forRender(doc));
   const seconds = renderLimit ?? Math.min(3600, Math.max(180, Math.round(songInfo(doc).lengthSeconds * 10 + 120)));
   const scratchBase = process.platform === 'win32' && hasNonAscii(root)
@@ -755,7 +843,12 @@ export async function renderDoc(doc, { loop = true, prepared = false, _skipSf2Gu
         }
         if (audibleTracks > 1) {
           await pool(sf2Indices, parallelRenders, async sf2Idx => {
-            const isolatedWav = await renderDoc(isolate(copy, new Set([sf2Idx])), { loop, prepared: true, _skipSf2Guard: true });
+            const isolatedWav = await renderDoc(isolate(copy, new Set([sf2Idx])), {
+              loop,
+              prepared: true,
+              _skipSf2Guard: true,
+              _provenanceChecked: true,
+            });
             if (measureWav(isolatedWav).peakDbfs === null) {
               const name = tracks(copy)[sf2Idx].getAttribute('name');
               throw new Error(`Silent SF2 render guard: isolated sf2player track "${name}" rendered absolute zero energy.`);
@@ -923,33 +1016,51 @@ function applyRingTrim(audio, targetFrames, fadeFrames) {
 }
 
 export async function renderMix(doc, { tail = 'cut', ringSeconds = 5, targetLufs, ceilingDb } = {}) {
+  const provenanceReport = await assertProjectProvenance(doc, {
+    workspaceDir: root,
+    soundfontsDir: soundfontsDirectory,
+    presetsDir: presets,
+    env: process.env,
+  });
   const info = songInfo(doc);
   if (tail === 'ring') {
     const extraBars = Math.max(1, Math.ceil(ringSeconds / info.secondsPerBar));
     const extended = forRender(doc);
     setAnchor(extended, info.lengthBars + extraBars);
-    const raw = await renderDoc(extended, { loop: false, prepared: true });
+    const raw = await renderDoc(extended, { loop: false, prepared: true, _provenanceChecked: true });
     const fullAudio = dsp.decodeWav(raw);
     const naturalFrames = Math.round(info.lengthSeconds * fullAudio.sampleRate);
     const { targetFrames, fadeFrames } = computeRingTrim(fullAudio, naturalFrames, ringSeconds);
     const audio = applyRingTrim(fullAudio, targetFrames, fadeFrames);
     const mastering = masterAudio(audio, { targetLufs, ceilingDb, wrap: false });
-    return { wav: dsp.encodeWav(audio), audio, info, mastering, targetFrames };
+    return { wav: dsp.encodeWav(audio), audio, info, mastering, targetFrames, provenanceReport };
   }
-  const raw = await renderDoc(doc, { loop: tail === 'cut' });
-  if (tail === 'cut' && targetLufs === undefined && ceilingDb === undefined) return { wav: raw, audio: null, info };
+  const raw = await renderDoc(doc, { loop: tail === 'cut', _provenanceChecked: true });
+  if (tail === 'cut' && targetLufs === undefined && ceilingDb === undefined) return { wav: raw, audio: null, info, provenanceReport };
   let audio = dsp.decodeWav(raw);
   if (tail === 'wrap') audio = dsp.foldTail(audio, Math.max(1, audio.frames - barFrames(info, audio.sampleRate)));
   const mastering = masterAudio(audio, { targetLufs, ceilingDb, wrap: tail === 'wrap' });
-  return { wav: dsp.encodeWav(audio), audio, info, mastering };
+  return { wav: dsp.encodeWav(audio), audio, info, mastering, provenanceReport };
 }
 tool('render_mix', 'Render the song to a 48 kHz WAV or OGG and report duration, peak, RMS, loudness, clipped samples and the loop boundary jump. Honours solo. Optional loop-safe or ring-out tail and loudness mastering.', {
   project: projectName, output: audioOut, tail: tailMode, ringSeconds: ringSecondsSchema, targetLufs: loudnessTarget, ceilingDb: ceilingTarget,
 }, async ({ project, output, tail, ringSeconds, targetLufs, ceilingDb }) => {
   if (existsSync(path.join(root, output))) throw new Error('Output already exists');
   const doc = await load(project);
-  const { wav, audio, info, mastering } = await renderMix(doc, { tail, ringSeconds, targetLufs, ceilingDb });
-  await writeAudio(path.join(root, output), wav);
+  await assertProjectProvenance(doc, {
+    projectName: project,
+    workspaceDir: root,
+    soundfontsDir: soundfontsDirectory,
+    presetsDir: presets,
+    env: process.env,
+  });
+  const { wav, audio, info, mastering, provenanceReport } = await renderMix(doc, { tail, ringSeconds, targetLufs, ceilingDb });
+  const targetPath = path.join(root, output);
+  await writeAudio(targetPath, wav);
+  await writeProjectOrRenderProvenance(targetPath, provenanceReport, {
+    workspaceDir: root,
+    generatorTool: 'render_mix',
+  });
   const decoded = audio ?? dsp.decodeWav(wav);
   const stats = measureWav(wav);
   const expected = info.lengthSeconds + (tail === 'keep' ? info.secondsPerBar : 0);
@@ -971,6 +1082,13 @@ tool('render_stems', 'Render one WAV per instrument, sample or Beat/Bassline tra
   ringSeconds: ringSecondsSchema,
 }, async ({ project, outputDirectory, tracks: names, tail, ringSeconds }) => {
   const doc = await load(project);
+  const provenanceReport = await assertProjectProvenance(doc, {
+    projectName: project,
+    workspaceDir: root,
+    soundfontsDir: soundfontsDirectory,
+    presetsDir: presets,
+    env: process.env,
+  });
   const info = songInfo(doc);
   const all = tracks(doc);
   const wanted = all.map((t, index) => ({ t, index })).filter(({ t }) => !isControl(t) && t.getAttribute('muted') !== '1' &&
@@ -987,7 +1105,7 @@ tool('render_stems', 'Render one WAV per instrument, sample or Beat/Bassline tra
       setAnchor(extendedDoc, info.lengthBars + extraBars);
       const renderedAudios = await pool([null, ...wanted], parallelRenders, async item => {
         const renderTarget = item === null ? forRender(extendedDoc) : isolate(extendedDoc, new Set([item.index]));
-        return dsp.decodeWav(await renderDoc(renderTarget, { loop: false, prepared: true }));
+        return dsp.decodeWav(await renderDoc(renderTarget, { loop: false, prepared: true, _provenanceChecked: true }));
       });
       const [masterAudio, ...stemAudios] = renderedAudios;
       const { targetFrames, fadeFrames } = computeRingTrim(masterAudio, naturalFrames, ringSeconds);
@@ -997,7 +1115,13 @@ tool('render_stems', 'Render one WAV per instrument, sample or Beat/Bassline tra
         const trimmed = applyRingTrim(stemAudios[i], targetFrames, fadeFrames);
         const file = `${index + 1}_${safeFile(t.getAttribute('name'))}.wav`;
         const wav = dsp.encodeWav(trimmed);
-        await writeFileAtomic(path.join(output, file), wav, { overwrite: false });
+        const stemPath = path.join(output, file);
+        await writeFileAtomic(stemPath, wav, { overwrite: false });
+        await writeProjectOrRenderProvenance(stemPath, provenanceReport, {
+          workspaceDir: root,
+          generatorTool: 'render_stems',
+          trackName: t.getAttribute('name'),
+        });
         stems.push({ file, track: t.getAttribute('name'), frames: trimmed.frames, ...measureWav(wav) });
       }
       return { directory: outputDirectory, bars: info.lengthBars, tail, ringSeconds, frames: targetFrames, stems };
@@ -1007,13 +1131,19 @@ tool('render_stems', 'Render one WAV per instrument, sample or Beat/Bassline tra
       ? Math.round((info.lengthSeconds + info.secondsPerBar) * 48000)
       : naturalFrames;
     const stems = await pool(wanted, parallelRenders, async ({ t, index }) => {
-      let audio = dsp.decodeWav(await renderDoc(isolate(doc, new Set([index])), { loop: tail === 'cut', prepared: true }));
+      let audio = dsp.decodeWav(await renderDoc(isolate(doc, new Set([index])), { loop: tail === 'cut', prepared: true, _provenanceChecked: true }));
       audio = tail === 'wrap'
         ? dsp.foldTail(dsp.fitLength(audio, naturalFrames + barFrames(info, audio.sampleRate)), naturalFrames)
         : dsp.fitLength(audio, targetFrames);
       const file = `${index + 1}_${safeFile(t.getAttribute('name'))}.wav`;
       const wav = dsp.encodeWav(audio);
-      await writeFileAtomic(path.join(output, file), wav, { overwrite: false });
+      const stemPath = path.join(output, file);
+      await writeFileAtomic(stemPath, wav, { overwrite: false });
+      await writeProjectOrRenderProvenance(stemPath, provenanceReport, {
+        workspaceDir: root,
+        generatorTool: 'render_stems',
+        trackName: t.getAttribute('name'),
+      });
       return { file, track: t.getAttribute('name'), frames: audio.frames, ...measureWav(wav) };
     });
     return { directory: outputDirectory, bars: info.lengthBars, tail, frames: targetFrames, stems };
@@ -1064,6 +1194,15 @@ tool('list_samples', 'Browse the stock LMMS sample library (drums, basses, instr
   group: z.string().regex(/^[\w -]+$/).optional(), query: z.string().max(60).default(''),
   limit: z.number().int().min(1).max(300).default(60),
 }, async ({ group, query, limit }) => {
+  if (isStrictCopyright(process.env)) {
+    return {
+      groups: {},
+      total: 0,
+      samples: [],
+      strictMode: true,
+      note: 'Stock LMMS factory samples are disabled in strict copyright mode. Use pure-synth voices, verified CC0-1.0 SoundFonts (list_sf2_presets), synth_drums, or provenanced workspace WAVs.',
+    };
+  }
   const found = [];
   const groups = {};
   for (const folder of await readdir(samplesDirectory, { withFileTypes: true })) {
@@ -1091,6 +1230,7 @@ tool('list_samples', 'Browse the stock LMMS sample library (drums, basses, instr
 const shippedCatalogue = fileURLToPath(new URL('./sound-catalogue.json', import.meta.url));
 const workspaceCatalogue = path.join(root, '.lmms-sound-catalogue.json');
 let measuredSounds;
+let strictMeasuredSounds;
 async function soundFacts() {
   if (!measuredSounds) {
     measuredSounds = {};
@@ -1098,7 +1238,30 @@ async function soundFacts() {
       try { Object.assign(measuredSounds, JSON.parse(await readFile(file, 'utf8')).sounds); } catch { /* optional */ }
     }
   }
-  return measuredSounds;
+  if (!isStrictCopyright(process.env)) return measuredSounds;
+  if (!strictMeasuredSounds) {
+    const filtered = {};
+    const hasPresetsDir = existsSync(presets);
+    const entries = Object.entries(measuredSounds);
+    const results = await Promise.all(entries.map(async ([name, fact]) => {
+      if (/^audiofileprocessor\//i.test(name)) return null;
+      if (hasPresetsDir) {
+        const check = await inspectPresetFile(path.join(presets, name), {
+          presetsDir: presets,
+          workspaceDir: root,
+          soundfontsDir: soundfontsDirectory,
+          env: process.env,
+        });
+        if (!check.allowed) return null;
+      }
+      return [name, fact];
+    }));
+    for (const pair of results) {
+      if (pair) filtered[pair[0]] = pair[1];
+    }
+    strictMeasuredSounds = filtered;
+  }
+  return strictMeasuredSounds;
 }
 const zynShell = inner => '<ZynAddSubFX-data version-major="2" version-minor="4" version-revision="1" ZynAddSubFX-author="Nasca Octavian Paul">' +
   '<MASTER><par name="volume" value="80"/><par name="key_shift" value="64"/><PART id="0"><par_bool name="enabled" value="yes"/>' +
@@ -1109,6 +1272,17 @@ const zynShell = inner => '<ZynAddSubFX-data version-major="2" version-minor="4"
 const linked = node => node && Array.from(node.getElementsByTagName('*')).some(child => child.hasAttribute('id'));
 const settingsTags = new Set(['eldata', 'chordcreator', 'arpeggiator', 'midiport', 'fxchain', 'midi', 'surpos']);
 async function loadPresetRaw(doc, target, preset) {
+  if (isStrictCopyright(process.env)) {
+    const presetCheck = await inspectPresetFile(path.join(presets, preset), {
+      presetsDir: presets,
+      workspaceDir: root,
+      soundfontsDir: soundfontsDirectory,
+      env: process.env,
+    });
+    if (!presetCheck.allowed) {
+      throw new Error(`Strict copyright provenance gate blocked preset "${preset}": ${presetCheck.reason}`);
+    }
+  }
   const file = await readFile(path.join(presets, preset));
   const [previousInstrument] = children(target, 'instrument');
   const [previousEnvelope] = children(target, 'eldata');
@@ -1237,7 +1411,13 @@ tool('build_sound_catalogue', 'Measure factory presets by rendering a test note,
   });
   let own = {};
   try { own = JSON.parse(await readFile(workspaceCatalogue, 'utf8')).sounds; } catch { /* first run */ }
-  for (const preset of todo) if (facts[preset]) own[preset] = facts[preset];
+  for (const preset of todo) {
+    if (facts[preset]) {
+      own[preset] = facts[preset];
+      if (measuredSounds) measuredSounds[preset] = facts[preset];
+    }
+  }
+  strictMeasuredSounds = null;
   await mkdir(root, { recursive: true });
   await writeFileAtomic(workspaceCatalogue, JSON.stringify({ lmms: '1.2', sounds: own }), { overwrite: true });
   return { measured: todo.length - failed.length, failed, remaining: all.filter(name => !facts[name]).length, total: all.length };
@@ -1249,6 +1429,20 @@ tool('preview_sound', 'Render a short audition of a factory preset, stock sample
 }, async ({ patchId: id, preset, factorySample: sample, output, midi }) => {
   if ([id, preset, sample].filter(Boolean).length !== 1) throw new Error('Supply exactly one of patchId, preset or factorySample');
   if (existsSync(path.join(root, output))) throw new Error('Output already exists');
+  if (sample && isStrictCopyright(process.env)) {
+    throw new Error(`Stock sample "${sample}" cannot be previewed or used in strict copyright mode`);
+  }
+  if (preset && isStrictCopyright(process.env)) {
+    const presetCheck = await inspectPresetFile(path.join(presets, preset), {
+      presetsDir: presets,
+      workspaceDir: root,
+      soundfontsDir: soundfontsDirectory,
+      env: process.env,
+    });
+    if (!presetCheck.allowed) {
+      throw new Error(`Preset "${preset}" is blocked in strict copyright mode: ${presetCheck.reason}`);
+    }
+  }
   if (preset || sample) {
     const base = sample ? 69 : midi ?? 57;
     const item = { name: 'Preview', voice: sample ? 'sample' : 'pluck', factorySample: sample, rootMidi: 69, volume: 45, pan: 0,
@@ -1257,11 +1451,22 @@ tool('preview_sound', 'Render a short audition of a factory preset, stock sample
     if (sample) await checkTrack(item);
     const doc = createSong(120, [item], 65);
     const loaded = preset ? await loadPreset(doc, instrumentOf(doc, 'Preview'), preset) : undefined;
-    const wav = await renderDoc(doc, { prepared: true });
+    const provenanceReport = await assertProjectProvenance(doc, {
+      workspaceDir: root,
+      soundfontsDir: soundfontsDirectory,
+      presetsDir: presets,
+      env: process.env,
+    });
+    const wav = await renderDoc(doc, { prepared: true, _provenanceChecked: true });
     const stats = measureWav(wav);
     if (stats.peakDbfs === null) throw new Error('Preview is silent. Try a different MIDI root or sound.');
     await mkdir(root, { recursive: true });
-    await writeFileAtomic(path.join(root, output), wav, { overwrite: false });
+    const outPath = path.join(root, output);
+    await writeFileAtomic(outPath, wav, { overwrite: false });
+    await writeProjectOrRenderProvenance(outPath, provenanceReport, {
+      workspaceDir: root,
+      generatorTool: 'preview_sound',
+    });
     const audio = dsp.decodeWav(wav);
     const pitch = sample ? undefined : dsp.detectPitch(audio.channels[0], audio.sampleRate, Math.round(audio.sampleRate * 0.1), Math.round(audio.sampleRate * 0.2));
     return { ...(preset ? { preset, tuning: loaded } : { factorySample: sample }), audio: output, ...stats,
@@ -1277,7 +1482,18 @@ tool('preview_sound', 'Render a short audition of a factory preset, stock sample
   const wav = await renderFathom({ worklet, patch, notes, cutoff: [{ tick: 0, hz: patch.filter.cutoff }],
     secondsPerTick: 1 / 96, durationTicks: 192 });
   await mkdir(root, { recursive: true });
-  await writeFileAtomic(path.join(root, output), wav, { overwrite: false });
+  const outPath = path.join(root, output);
+  await writeFileAtomic(outPath, wav, { overwrite: false });
+  await writeProvenanceSidecar(outPath, {
+    workspaceDir: root,
+    classification: 'pure-synthesis',
+    generatorTool: 'preview_sound',
+    sources: [{
+      kind: 'pure-synthesis',
+      pluginOrLibrary: `fathom:${patch.model}`,
+      licence: 'unrestricted-synthesis',
+    }],
+  });
   return { patchId: id, audio: output, ...measureWav(wav) };
 });
 
@@ -1300,14 +1516,20 @@ export async function installedInstrumentIds() {
 tool('list_instruments', 'Discover what this installation can play: built-in voices, stock instrument plugins, preset and sample counts, effects, OGG support and Fathom bridge configuration.', {}, async () => {
   const [plugins, factoryPresets, zyn] = await Promise.allSettled([installedInstrumentIds(), listPresets(), listZynPresets()]);
   const worklet = process.env.LMMS_FATHOM_WORKLET;
+  const strict = isStrictCopyright(process.env);
+  const visiblePlugins = (plugins.value ?? []).filter(id => !strict || (!FORBIDDEN_PLUGINS.includes(id) && id !== 'audiofileprocessor'));
   return {
     builtInVoices: [...Object.keys(tones), ...Object.keys(SYNTH_DRUM_VOICES), 'sample', 'preset', 'sf2'],
-    nativePlugins: (plugins.value ?? []).map(id => ({ id, family: instruments[id] })),
+    nativePlugins: visiblePlugins.map(id => ({ id, family: instruments[id] })),
     pluginScan: plugins.status === 'fulfilled' ? pluginDirectory : { directory: pluginDirectory, error: plugins.reason.code },
     factoryPresets: factoryPresets.value ?? [],
     zynPresets: (zyn.value ?? []).length,
     presetScan: factoryPresets.status === 'fulfilled' ? presets : { directory: presets, error: factoryPresets.reason.code },
-    samples: existsSync(samplesDirectory) ? { directory: samplesDirectory, tool: 'list_samples' } : { error: 'Sample directory not found. Set LMMS_SAMPLES.' },
+    samples: strict
+      ? { strictBlocked: true, note: 'Stock LMMS factory samples are disabled in strict copyright mode.' }
+      : existsSync(samplesDirectory)
+        ? { directory: samplesDirectory, tool: 'list_samples' }
+        : { error: 'Sample directory not found. Set LMMS_SAMPLES.' },
     effects: Object.keys(effectTypes), oggOutput: await hasFfmpeg(),
     fathom: { configured: Boolean(worklet), workletFound: Boolean(worklet && existsSync(worklet)),
       models: ['fathom', 'vesper', 'halo'], tool: 'render_fathom_track' },
@@ -1316,6 +1538,9 @@ tool('list_instruments', 'Discover what this installation can play: built-in voi
 edit('set_native_instrument', 'Load an installed stock LMMS instrument at its default settings. Keeps existing notes, mixer routing and track controls.', {
   trackName: z.string(), instrument: z.enum(Object.keys(instruments)),
 }, async (doc, { trackName, instrument }) => {
+  if (isStrictCopyright(process.env) && !PURE_SYNTH_PLUGINS.includes(instrument.toLowerCase())) {
+    throw new Error(`Instrument plugin "${instrument}" cannot be loaded bare in strict copyright mode; use pure-synth plugins, set_sf2_instrument for locked CC0 SoundFonts, or provenanced sample tracks.`);
+  }
   if (!(await installedInstrumentIds()).includes(instrument)) throw new Error('Instrument plugin was not found in LMMS_PLUGINS');
   const target = instrumentOf(doc, trackName);
   const [previous] = children(target, 'instrument');
@@ -1537,6 +1762,15 @@ tool('export_one_shots', 'Trim edge silence, fade and peak-match source WAVs as 
   peakDb: z.number().min(-18).max(-1).default(-3),
 }, async ({ outputDirectory, sounds, thresholdDb, peakDb }) => {
   if (new Set(sounds.map(s => s.name.toLowerCase())).size !== sounds.length) throw new Error('Sound names must be unique');
+  const verifiedInputs = new Map();
+  for (const { input } of sounds) {
+    if (!verifiedInputs.has(input)) {
+      verifiedInputs.set(input, await verifyAudioFileProvenance(path.join(root, input), {
+        workspaceDir: root,
+        env: process.env,
+      }));
+    }
+  }
   const destination = path.join(root, outputDirectory);
   await mkdir(destination);
   try {
@@ -1588,7 +1822,12 @@ tool('export_one_shots', 'Trim edge silence, fade and peak-match source WAVs as 
       wav.writeUInt32LE(take.length * 2, 40);
       for (let i = 0; i < take.length; i++) wav.writeInt16LE(Math.round(take[i] * gain), 44 + i * 2);
       const file = name + '.wav';
-      await writeFileAtomic(path.join(destination, file), wav, { overwrite: false });
+      const outPath = path.join(destination, file);
+      await writeFileAtomic(outPath, wav, { overwrite: false });
+      await writeDerivedAudioProvenance(outPath, [verifiedInputs.get(input)], {
+        workspaceDir: root,
+        generatorTool: 'export_one_shots',
+      });
       files.push({ file, source: input, trimStartSeconds: start / sampleRate, ...measureWav(wav) });
     }
     const manifest = { sampleRate: 48000, channels: 1, peakTargetDbfs: peakDb, files };
@@ -1659,6 +1898,7 @@ edit('edit_sample_clip', 'Place, move, duplicate, resize, mute, relink or remove
   if (file) {
     const filename = path.join(root, file);
     if (!(await lstat(filename)).isFile()) throw new Error('Expected a regular workspace audio file');
+    await verifyAudioFileProvenance(filename, { workspaceDir: root, env: process.env });
     source = filename.replaceAll('\\', '/');
   }
   if (!target) {
@@ -1690,6 +1930,7 @@ export const toolContext = {
   tool, edit, edits, z, dsp, root, generations, imagesKey, explain, moduleGuidance, postSave, exportChecks,
   logger: log,
   fsAtomic: { writeFileAtomic, runCommandSafe },
+  provenance: provenanceEngine,
   config: workspaceConfig,
   schemas: { projectName, wavName, audioOut, workspaceWav, factorySample, folderName, pattern, track, note, volume, presetFile,
     loudnessTarget, ceilingTarget, tailMode, section, pngName },
@@ -1757,6 +1998,13 @@ tool('export_game_audio', 'Export a song for a game engine in one call: a seamle
   strict: strictChecks,
 }, async ({ project, outputDirectory, name, introBars, layers, stingers, targetLufs, ceilingDb, ogg, strict }) => {
   const doc = await load(project);
+  const provenanceReport = await assertProjectProvenance(doc, {
+    projectName: project,
+    workspaceDir: root,
+    soundfontsDir: soundfontsDirectory,
+    presetsDir: presets,
+    env: process.env,
+  });
   const checks = await runChecks(exportChecks, doc, project, strict);
   const info = songInfo(doc);
   if (!info.staticTempo) throw new Error('Game export needs a static tempo');
@@ -1776,7 +2024,7 @@ tool('export_game_audio', 'Export a song for a game engine in one call: a seamle
     const sampleRate = 48000, bar = barFrames(info, sampleRate);
     const songFrames = Math.round(info.lengthSeconds * sampleRate), introFrames = Math.round((introBars ?? 0) * info.secondsPerBar * sampleRate);
     const renders = await pool([null, ...layerSets], parallelRenders, set =>
-      renderDoc(set ? isolate(doc, set) : forRender(doc), { loop: false, prepared: true }).then(wav => dsp.fitLength(dsp.decodeWav(wav), songFrames + bar)));
+      renderDoc(set ? isolate(doc, set) : forRender(doc), { loop: false, prepared: true, _provenanceChecked: true }).then(wav => dsp.fitLength(dsp.decodeWav(wav), songFrames + bar)));
     const [full, ...layerAudio] = renders;
     const loopOf = audio => dsp.foldTail(dsp.slice(audio, introFrames, audio.frames), songFrames - introFrames);
     const loop = loopOf(full);
@@ -1803,8 +2051,20 @@ tool('export_game_audio', 'Export a song for a game engine in one call: a seamle
       dsp.applyGain(audio, gain);
       const limited = limiter && ceiling !== undefined ? dsp.limit(audio, ceiling, { wrap }) : null;
       const wav = dsp.encodeWav(audio);
-      await writeFileAtomic(path.join(destination, file + '.wav'), wav, { overwrite: false });
-      if (ogg) await writeAudio(path.join(destination, file + '.ogg'), wav);
+      const wavPath = path.join(destination, file + '.wav');
+      await writeFileAtomic(wavPath, wav, { overwrite: false });
+      await writeProjectOrRenderProvenance(wavPath, provenanceReport, {
+        workspaceDir: root,
+        generatorTool: 'export_game_audio',
+      });
+      if (ogg) {
+        const oggPath = path.join(destination, file + '.ogg');
+        await writeAudio(oggPath, wav);
+        await writeProjectOrRenderProvenance(oggPath, provenanceReport, {
+          workspaceDir: root,
+          generatorTool: 'export_game_audio',
+        });
+      }
       const report = dsp.analyze(audio);
       files.push({ file: file + '.wav', ...(ogg ? { ogg: file + '.ogg' } : {}), role, ...extra, frames: audio.frames,
         durationSeconds: report.durationSeconds, integratedLufs: report.integratedLufs, truePeakDbfs: report.truePeakDbfs,
@@ -1855,6 +2115,13 @@ tool('export_midi', 'Export instrument patterns and arranged Beat/Bassline clips
   pitchMode: z.enum(['written', 'playback']).default('written'),
 }, async ({ project, output, pitchMode }) => {
   const doc = await load(project);
+  const provenanceReport = await assertProjectProvenance(doc, {
+    projectName: project,
+    workspaceDir: root,
+    soundfontsDir: soundfontsDirectory,
+    presetsDir: presets,
+    env: process.env,
+  });
   const [head] = children(doc.documentElement, 'head');
   const bpm = Number(head?.getAttribute('bpm') || 140);
   const meter = [Number(head?.getAttribute('timesig_numerator') || 4), Number(head?.getAttribute('timesig_denominator') || 4)];
@@ -1929,11 +2196,100 @@ tool('export_midi', 'Export instrument patterns and arranged Beat/Bassline clips
   }
   if (!midi.tracks.some(track => track.notes.length)) throw new Error('No exportable instrument notes');
   await mkdir(root, { recursive: true });
-  await writeFileAtomic(path.join(root, output), Buffer.from(midi.toArray()), { overwrite: false });
+  const midiPath = path.join(root, output);
+  await writeFileAtomic(midiPath, Buffer.from(midi.toArray()), { overwrite: false });
+  await writeProjectOrRenderProvenance(midiPath, provenanceReport, {
+    workspaceDir: root,
+    generatorTool: 'export_midi',
+  });
   return { file: output, pitchMode, tracks: midi.tracks.map(track => ({ name: track.name, notes: track.notes.length })) };
 });
+
+tool('audit_copyright', 'Inspect every track or audio asset in a workspace LMMS project (.mmp/.mmpz) or rendered audio file (.wav/.ogg) against strict copyright provenance rules, verifying pure-synthesis plugins, locked CC0-1.0 SoundFont SHA-256 hashes, and hash-bound audio provenance sidecars.', {
+  project: projectName.optional().describe('Workspace LMMS project (.mmp or .mmpz) to audit.'),
+  audio: z.string().regex(/^(?:[a-z0-9][a-z0-9 _-]{0,79}\/)?[a-z0-9][a-z0-9 _-]{0,99}\.(wav|ogg)$/i).optional()
+    .describe('Workspace audio file (.wav or .ogg) to audit.'),
+}, async ({ project, audio }) => {
+  if (Boolean(project) === Boolean(audio)) {
+    throw new Error('Supply exactly one of project or audio');
+  }
+  const strictMode = isStrictCopyright(process.env);
+  if (project) {
+    const projectPath = path.join(root, project);
+    await assertRealpathContained(projectPath, root, 'Project file');
+    const doc = await load(project);
+    const report = await auditProjectProvenance(doc, {
+      projectName: project,
+      workspaceDir: root,
+      soundfontsDir: soundfontsDirectory,
+      presetsDir: presets,
+      env: process.env,
+    });
+    const issues = [...report.issues];
+    let compliant = report.compliant;
+    const sidecarPath = provenancePathFor(projectPath);
+    if (existsSync(sidecarPath)) {
+      try {
+        await assertRealpathContained(sidecarPath, root, 'Project provenance sidecar');
+        const sidecar = JSON.parse(await readFile(sidecarPath, 'utf8'));
+        const actualSha = await sha256File(projectPath);
+        if (sidecar.sha256?.toLowerCase() !== actualSha.toLowerCase()) {
+          compliant = false;
+          issues.push(`Project provenance sidecar SHA-256 mismatch: expected ${sidecar.sha256}, actual ${actualSha}`);
+        } else if (sidecar.strictCompliant !== true) {
+          compliant = false;
+          issues.push('Project provenance sidecar marks strictCompliant as false');
+        }
+      } catch (error) {
+        compliant = false;
+        issues.push(`Invalid project provenance sidecar: ${error.message}`);
+      }
+    }
+    return {
+      compliant,
+      strictMode,
+      classification: compliant ? report.classification : null,
+      tracksOrInputs: report.tracksOrInputs,
+      hasUserAttestedTakes: report.hasUserAttestedTakes,
+      ...(issues.length ? { issues } : {}),
+      legalScopeNote: report.legalScopeNote,
+    };
+  }
+
+  const audioPath = path.join(root, audio);
+  await assertRealpathContained(audioPath, root, 'Audio file');
+  try {
+    const verified = await verifyAudioFileProvenance(audioPath, {
+      workspaceDir: root,
+      env: { ...process.env, LMMS_STRICT_COPYRIGHT: '1' },
+    });
+    const hasUserAttestedTakes = Boolean(
+      verified.record.classification === 'user-attested-mic-take' ||
+      verified.record.sources.some(s => s.kind === 'user-attested-mic-take'),
+    );
+    return {
+      compliant: true,
+      strictMode,
+      classification: verified.record.classification,
+      tracksOrInputs: verified.record.sources,
+      hasUserAttestedTakes,
+      legalScopeNote: verified.record.legalScopeNote ?? LEGAL_SCOPE_NOTE,
+    };
+  } catch (error) {
+    return {
+      compliant: false,
+      strictMode,
+      classification: null,
+      tracksOrInputs: [{ input: audio, compliant: false, issue: error.message }],
+      hasUserAttestedTakes: false,
+      issues: [error.message],
+      legalScopeNote: LEGAL_SCOPE_NOTE,
+    };
+  }
+});
+
 const livePipe = process.env.LMMS_LIVE_PIPE;
-if (process.platform === 'win32' && livePipe && /^[a-zA-Z0-9_-]+$/.test(livePipe)) {
+if (!isStrictCopyright(process.env) && process.platform === 'win32' && livePipe && /^[a-zA-Z0-9_-]+$/.test(livePipe)) {
   function bridgeCall(command, args = {}) {
     const request = JSON.stringify({ cmd: command, args }) + '\n';
     if (Buffer.byteLength(request) > 65536) throw new Error('Live command exceeds the bridge request limit');

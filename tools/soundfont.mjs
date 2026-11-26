@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { lstat, readFile, readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { runCommandSafe } from './fs-atomic.mjs';
+import { isStrictCopyright, verifySoundfontProvenance, writeProvenanceSidecar } from './provenance.mjs';
 import { parseSf2Buffer } from './sf2-builder.mjs';
 import { PACK_NAMES, TRACKED_LOCK_PATH, loadSoundfontLock } from './soundfont-pack.mjs';
 import { ensureLmmsAsciiPath, resolveSoundfontsDir } from './workspace-config.mjs';
@@ -73,6 +74,11 @@ export async function prepareSf2InstrumentSpec({
   soundfontsDir = resolveSoundfontsDir(process.env),
 }) {
   const { fullPath, location } = resolveSf2Path(sf2, { root, soundfontsDir });
+  await verifySoundfontProvenance(fullPath, {
+    workspaceDir: root,
+    soundfontsDir,
+    env: process.env,
+  });
   const header = await inspectSf2File(fullPath);
   const matched = header.presets.find(p => p.bank === bank && p.patch === patch);
   if (!matched) {
@@ -167,6 +173,11 @@ export function register({ tool, edit, z, root, paths, project, moduleGuidance }
     const candidates = [];
     if (sf2) {
       const resolved = resolveSf2Path(sf2, { root, soundfontsDir: sfDir });
+      await verifySoundfontProvenance(resolved.fullPath, {
+        workspaceDir: root,
+        soundfontsDir: sfDir,
+        env: process.env,
+      });
       candidates.push({ rel: sf2.replaceAll('\\', '/'), fullPath: resolved.fullPath, location: resolved.location });
     } else {
       const seenFull = new Set();
@@ -187,8 +198,17 @@ export function register({ tool, edit, z, root, paths, project, moduleGuidance }
       await scanDir(root, 'workspace');
     }
 
+    const strict = isStrictCopyright(process.env);
     const soundfonts = [];
     for (const item of candidates) {
+      if (strict) {
+        const verified = await verifySoundfontProvenance(item.fullPath, {
+          workspaceDir: root,
+          soundfontsDir: sfDir,
+          env: process.env,
+        }).catch(() => null);
+        if (!verified?.verified) continue;
+      }
       const header = await inspectSf2File(item.fullPath);
       const lockEntry = lockByFile.get(path.basename(item.fullPath).toLowerCase()) ?? null;
       soundfonts.push({
@@ -250,15 +270,28 @@ export function register({ tool, edit, z, root, paths, project, moduleGuidance }
 
   tool('list_soundfonts', 'List .sf2 and .sf3 files visible to native sf2player and render_soundfont (workspace and LMMS_SOUNDFONTS, recursive).', {}, async () => {
     const found = [];
+    const strict = isStrictCopyright(process.env);
+    const sfDir = getSoundfontsDir();
     const scan = async (dir, label, base = '') => {
       if (!dir || !existsSync(dir)) return;
       for (const entry of await readdir(dir, { withFileTypes: true })) {
         const rel = base ? base + '/' + entry.name : entry.name;
-        if (entry.isDirectory() && !entry.name.startsWith('.') && rel.split('/').length < 6) await scan(path.join(dir, entry.name), label, rel);
-        else if (entry.isFile() && /\.sf[23]$/i.test(entry.name)) found.push({ path: rel, location: label });
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory() && !entry.name.startsWith('.') && rel.split('/').length < 6) {
+          await scan(full, label, rel);
+        } else if (entry.isFile() && /\.sf[23]$/i.test(entry.name)) {
+          if (strict) {
+            const check = await verifySoundfontProvenance(full, {
+              workspaceDir: root,
+              soundfontsDir: sfDir,
+              env: process.env,
+            }).catch(() => null);
+            if (!check?.verified) continue;
+          }
+          found.push({ path: rel, location: label });
+        }
       }
     };
-    const sfDir = getSoundfontsDir();
     await scan(root, 'workspace');
     await scan(sfDir, 'LMMS_SOUNDFONTS');
     return { soundfonts: found, soundfontsDirectory: sfDir, note: found.length ? 'Use list_sf2_presets for banks/patches, voice: "sf2" for native LMMS tracks, or render_soundfont for FluidSynth.' : 'No SoundFonts found. Call install_soundfont_pack({ pack: "core" }) or place .sf2/.sf3 files under LMMS_SOUNDFONTS.' };
@@ -291,6 +324,11 @@ export function register({ tool, edit, z, root, paths, project, moduleGuidance }
     };
     const sfPath = resolveSoundfont(soundfont);
     if (!(await lstat(sfPath).catch(() => null))?.isFile()) throw new Error(`SoundFont is not a file: ${sfPath}`);
+    const sf2Check = await verifySoundfontProvenance(sfPath, {
+      workspaceDir: root,
+      soundfontsDir: sfDir,
+      env: process.env,
+    });
 
     const outPath = path.join(root, output);
     if (existsSync(outPath)) throw new Error('Output already exists');
@@ -304,6 +342,14 @@ export function register({ tool, edit, z, root, paths, project, moduleGuidance }
       throw new Error('FluidSynth failed: ' + (error.stderr || error.message).toString().trim().split(/\r?\n/).slice(-3).join(' | '));
     }
     if (!existsSync(outPath)) throw new Error('FluidSynth ran but did not write the output WAV');
+    if (sf2Check.verified) {
+      await writeProvenanceSidecar(outPath, {
+        workspaceDir: root,
+        classification: 'verified-cc0-sf2',
+        generatorTool: 'render_soundfont',
+        sources: [sf2Check.source],
+      });
+    }
     return { output, soundfont: path.basename(sfPath), midi, sampleRate, gain, reverb, chorus, bank: bank ?? null, preset: preset ?? null, note: 'WAV is in the workspace. MIDI program changes are honoured. You can load it as a sample track or analyse it with analyze_audio.' };
   });
 }

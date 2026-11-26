@@ -27,6 +27,9 @@ test('clean drum tools produce WAV, map GM keys and preserve provenance through 
     assert.ok(tools.some(tool => tool.name === 'fetch_kit' && tool.inputSchema.properties.kit));
     const rejected = await client.callTool({ name: 'fetch_kit', arguments: { kit: 'unverified-free-kit' } });
     assert.ok(rejected.isError);
+    const strictBlockedFetch = await client.callTool({ name: 'fetch_kit', arguments: {} });
+    assert.ok(strictBlockedFetch.isError);
+    assert.match(strictBlockedFetch.content[0].text, /strict copyright mode/i);
     const roles = ['kick','snare','clap','closedHat','openHat','rim','tom','crash','ride','sub808','hardstyle'];
     const hits = roles.map(role => ({ role, midi: 36, click: .65, drive: .8, decayMs: 120, seed: 17 }));
     const result = await call('synth_drums', { outputDirectory: 'drums', hits });
@@ -37,6 +40,9 @@ test('clean drum tools produce WAV, map GM keys and preserve provenance through 
     for (const [i, entry] of manifest.files.entries()) {
       const bytes = await readFile(path.join(workspace, entry.file));
       assert.equal(createHash('sha256').update(bytes).digest('hex'), entry.sha256);
+      const prov = JSON.parse(await readFile(path.join(workspace, entry.file + '.provenance.json'), 'utf8'));
+      assert.equal(prov.sha256, entry.sha256);
+      assert.equal(prov.classification, 'pure-synthesis');
       assert.equal(entry.sha256, again.files[i].sha256);
       assert.equal(entry.licence, 'MIT');
       const audio = decodeWav(bytes);
@@ -49,11 +55,13 @@ test('clean drum tools produce WAV, map GM keys and preserve provenance through 
     const { file: kick } = result.files[0];
     const { file: snare } = result.files[1];
     const mapped = await call('build_kit', { output: 'kit.mmp', samples: [{ file: kick, role: 'kick' }, { file: snare, role: 'snare' }] });
+    assert.equal(mapped.preset, undefined);
     const mmp = await readFile(path.join(workspace, mapped.project), 'utf8');
     assert.match(mmp, /basenote="24"/);
     assert.match(mmp, /key="26"[^>]*pos="48"/);
-    const preset = await readFile(path.join(workspace, mapped.preset), 'utf8');
-    assert.match(preset, /rootNote="36" loNote="36" hiNote="36"/);
+    const kitProv = JSON.parse(await readFile(path.join(workspace, mapped.project + '.provenance.json'), 'utf8'));
+    assert.equal(kitProv.strictCompliant, true);
+    assert.equal(kitProv.classification, 'pure-synthesis');
     const mid = new midiPackage.Midi(await readFile(path.join(workspace, mapped.midi)));
     assert.equal(mid.tracks[0].channel, 9);
     assert.deepEqual(mid.tracks[0].notes.map(note => note.midi), [36, 38]);

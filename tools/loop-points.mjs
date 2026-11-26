@@ -9,6 +9,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { verifyAudioFileProvenance, writeDerivedAudioProvenance } from './provenance.mjs';
 
 const sha256 = buffer => createHash('sha256').update(buffer).digest('hex');
 const loopTags = ['LOOPSTART', 'LOOPEND', 'LOOPLENGTH'];
@@ -301,7 +302,7 @@ export function applyLoop(buffer, kind, request) {
 }
 
 // ---------- tool ----------
-export function register({ tool, z, root, moduleGuidance }) {
+export function register({ tool, z, root, moduleGuidance, env = process.env }) {
   const file = z.string().regex(/^(?:[a-z0-9][a-z0-9 _-]{0,79}\/)?[a-z0-9][\w ().,'&-]{0,149}\.(wav|ogg)$/i)
     .describe('A workspace WAV or OGG Vorbis file. It may sit one folder down.');
   const manifestName = z.string().regex(/^(?:[a-z0-9][a-z0-9 _-]{0,79}\/)?[a-z0-9][\w ().,'&-]{0,149}\.manifest\.json$/i)
@@ -329,6 +330,7 @@ export function register({ tool, z, root, moduleGuidance }) {
     const tag = async (relative, target, replace, source, clamp = false) => {
       const absolute = path.join(root, relative);
       if (!existsSync(absolute)) throw new Error(`File not found: ${relative}`);
+      const inputCheck = await verifyAudioFileProvenance(absolute, { workspaceDir: root, env });
       const kind = kindOf(target);
       if (kindOf(relative) !== kind) throw new Error('The output must have the same type (WAV or OGG) as the audio');
       const buffer = await readFile(absolute);
@@ -341,7 +343,12 @@ export function register({ tool, z, root, moduleGuidance }) {
         }
       }
       const done = applyLoop(buffer, kind, asked);
-      await save(path.join(root, target), done.buffer, replace);
+      const targetFull = path.join(root, target);
+      await save(targetFull, done.buffer, replace);
+      await writeDerivedAudioProvenance(targetFull, [inputCheck], {
+        workspaceDir: root,
+        generatorTool: 'write_loop_points',
+      });
       const entry = { file: target, format: kind, sampleRate: done.info.sampleRate, channels: done.info.channels, frames: done.info.frames,
         startFrame: done.startFrame, endFrame: done.endFrame, lengthFrames: done.endFrame - done.startFrame, sha256: sha256(done.buffer) };
       if (sidecar) {

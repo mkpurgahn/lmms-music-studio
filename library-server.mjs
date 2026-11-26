@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { localHost, readContained, serveDesk } from './tools/mix-desk/api.mjs';
 import { createLogger } from './tools/logger.mjs';
+import { isStrictCopyright } from './tools/provenance.mjs';
 import { resolveLmmsSamplesDir, resolveSoundfontsDir, resolveWorkspaceDir } from './tools/workspace-config.mjs';
 
 export const log = createLogger('library-server');
@@ -19,7 +20,7 @@ export function mounts(env = process.env) {
   const legacyLib = env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, 'lmms-mcp', 'libraries') : null;
   return {
     workspace: resolveWorkspaceDir(env),
-    stock: resolveLmmsSamplesDir(env),
+    stock: isStrictCopyright(env) ? null : resolveLmmsSamplesDir(env),
     soundfonts: resolveSoundfontsDir(env),
     library: env.LMMS_SAMPLE_LIBRARIES
       ? path.resolve(env.LMMS_SAMPLE_LIBRARIES)
@@ -31,11 +32,12 @@ export function mounts(env = process.env) {
   };
 }
 // Map a request path to a file inside one of the mounted folders, or null. /_stock/ and /_lib/ are the external mounts; anything else is the workspace.
-export function resolveRequest(urlPath, folders) {
+export function resolveRequest(urlPath, folders, { env = process.env } = {}) {
   let decoded;
   try { decoded = decodeURIComponent(urlPath.split('?')[0]); } catch { return null; }
   if (!decoded.startsWith('/') || decoded.startsWith('//') || /[\0:\\]/.test(decoded)
       || decoded.split('/').some(segment => segment.startsWith('.'))) return null;
+  if (decoded.startsWith('/_stock/') && isStrictCopyright(env)) return null;
   const pick = decoded.startsWith('/_stock/')
     ? [folders.stock, decoded.slice(8)]
     : decoded.startsWith('/_lib/')
@@ -55,15 +57,20 @@ export function parseRange(header, size) {
   start = Math.max(0, start); end = Math.min(size - 1, end);
   return start <= end ? { start, end } : null;
 }
-export function startServer({ port = 18290, folders = mounts(), logger = log } = {}) {
+export function startServer({ port = 18290, folders, env = process.env, logger = log } = {}) {
+  const activeFolders = folders ?? mounts(env);
   const server = createServer(async (request, response) => {
     if (!localHost(request.headers.host)) { response.writeHead(403).end('Expected a local host'); return; }
     let urlPath;
     try { urlPath = decodeURIComponent(request.url.split('?')[0]); }
     catch { response.writeHead(400).end('Invalid URL'); return; }
-    if (await serveDesk(request, response, folders)) return;
-    const file = request.method === 'GET' || request.method === 'HEAD' ? resolveRequest(request.url, folders) : null;
-    const base = urlPath.startsWith('/_stock/') ? folders.stock : urlPath.startsWith('/_lib/') ? folders.library : folders.workspace;
+    if (await serveDesk(request, response, activeFolders, { env })) return;
+    const file = request.method === 'GET' || request.method === 'HEAD' ? resolveRequest(request.url, activeFolders, { env }) : null;
+    const base = urlPath.startsWith('/_stock/')
+      ? (isStrictCopyright(env) ? null : activeFolders.stock)
+      : urlPath.startsWith('/_lib/')
+        ? activeFolders.library
+        : activeFolders.workspace;
     const info = file && await readContained(file, base);
     if (!info) { response.writeHead(404, { 'content-type': 'text/plain' }); response.end('Not found'); return; }
     const headers = { 'content-type': types[path.extname(file).toLowerCase()] ?? 'application/octet-stream', 'accept-ranges': 'bytes', 'cache-control': 'no-cache' };

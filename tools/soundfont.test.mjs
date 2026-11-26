@@ -103,7 +103,7 @@ test('native sf2player C4 pitch, Bank 128 drums, pure-synth drums, silent-SF2 gu
   await client.connect(new StdioClientTransport({
     command: process.execPath,
     args: [fileURLToPath(new URL('../server.mjs', import.meta.url))],
-    env: { ...process.env, LMMS_WORKSPACE: workspace },
+    env: { ...process.env, LMMS_WORKSPACE: workspace, LMMS_STRICT_COPYRIGHT: '0' },
   }));
   t.after(() => client.close().catch(() => {}));
 

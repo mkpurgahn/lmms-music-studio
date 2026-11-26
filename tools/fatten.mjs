@@ -1,7 +1,9 @@
 // Fat sound-design chain: layering, unison, saturation, OTT-style compression, chorus, EQ tilt, stereo width.
 // Per-sound processing. Deterministic. Additive to existing mix/master tools.
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { writeFileAtomic } from './fs-atomic.mjs';
+import { verifyAudioFileProvenance, writeDerivedAudioProvenance } from './provenance.mjs';
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -118,7 +120,9 @@ export function register({ tool, z, root, dsp, moduleGuidance, schemas }) {
     saturation: z.enum(['tape', 'tube', 'hard', 'none']).optional(),
     width: z.number().min(0.5).max(2).optional(),
   }, async ({ input, output, preset, saturation, width }) => {
-    const audio = dsp.decodeWav(await readFile(path.join(root, input)));
+    const inputPath = path.join(root, input);
+    const inputCheck = await verifyAudioFileProvenance(inputPath, { workspaceDir: root, env: process.env });
+    const audio = dsp.decodeWav(await readFile(inputPath));
     const presets = {
       'fat lead': { unison: true, saturation: 'tape', ott: true, chorus: true, tiltDb: 2, width: 1.2 },
       'huge pad': { unison: true, saturation: 'tube', ott: true, chorus: true, tiltDb: 1, width: 1.4 },
@@ -130,7 +134,13 @@ export function register({ tool, z, root, dsp, moduleGuidance, schemas }) {
     const opts = { ...(presets[preset] ?? presets['fat lead']), ...(saturation ? { saturation } : {}), ...(width ? { width } : {}) };
     const result = fatten(audio, opts);
     dsp.limitTruePeak(result, -1.01);
-    await writeFile(path.join(root, output), dsp.encodeWav(result), { flag: 'wx' });
+    const outPath = path.join(root, output);
+    await mkdir(path.dirname(outPath), { recursive: true });
+    await writeFileAtomic(outPath, dsp.encodeWav(result), { overwrite: false });
+    await writeDerivedAudioProvenance(outPath, [inputCheck], {
+      workspaceDir: root,
+      generatorTool: 'fatten',
+    });
     return { output, preset, opts };
   });
 
@@ -139,6 +149,8 @@ export function register({ tool, z, root, dsp, moduleGuidance, schemas }) {
     output: schemas.workspaceWav,
     crossovers: z.array(z.number()).optional().describe('Hz crossovers between layers, length = inputs.length - 1'),
   }, async ({ inputs, output }) => {
+    const inputChecks = await Promise.all(inputs.map(f =>
+      verifyAudioFileProvenance(path.join(root, f), { workspaceDir: root, env: process.env })));
     const audios = [];
     for (const f of inputs) {
       audios.push(dsp.decodeWav(await readFile(path.join(root, f))));
@@ -155,7 +167,13 @@ export function register({ tool, z, root, dsp, moduleGuidance, schemas }) {
     }
     const mixed = { sampleRate: rate, channels: out, frames };
     dsp.limitTruePeak(mixed, -1.01);
-    await writeFile(path.join(root, output), dsp.encodeWav(mixed), { flag: 'wx' });
+    const outPath = path.join(root, output);
+    await mkdir(path.dirname(outPath), { recursive: true });
+    await writeFileAtomic(outPath, dsp.encodeWav(mixed), { overwrite: false });
+    await writeDerivedAudioProvenance(outPath, inputChecks, {
+      workspaceDir: root,
+      generatorTool: 'layer_sounds',
+    });
     return { output, layers: inputs.length };
   });
 }

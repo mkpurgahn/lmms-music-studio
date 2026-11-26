@@ -4,6 +4,7 @@ import { decodeWav } from '../../audio.mjs';
 import { scanWorkspace, applyMeta, facets, validateMeta, metaText, sidecarFor } from '../sound-meta.mjs';
 import { sampleItems, classifyWorkspace } from '../library-browser.mjs';
 import { writeFileAtomic } from '../fs-atomic.mjs';
+import { isStrictCopyright, provenancePathFor, sha256Buffer, writeProvenanceSidecar } from '../provenance.mjs';
 import { idPattern, normalizeSession, samplePath } from './state.mjs';
 
 const assets = new Map(Object.entries({
@@ -57,10 +58,15 @@ export async function readContained(file, base) {
   }
 }
 
-async function catalogue(folders) {
-
+async function catalogue(folders, env = process.env) {
+  const strict = isStrictCopyright(env);
+  const sources = [
+    ['workspace', '', folders.workspace],
+    ...(strict ? [] : [['stock', '/_stock', folders.stock]]),
+    ['library', '/_lib', folders.library],
+  ];
   const rows = [];
-  for (const [source, prefix, folder] of [['workspace','', folders.workspace], ['stock','/_stock', folders.stock], ['library','/_lib', folders.library]]) {
+  for (const [source, prefix, folder] of sources) {
     if (!folder) continue;
     for (const group of await scanWorkspace(folder)) {
       let meta = {};
@@ -101,13 +107,42 @@ async function saveTake(request, url, workspace) {
   if (errors.length) throw fail(errors.join(' '));
   const filename = path.join(workspace, name + '.wav');
   const sidecar = path.join(workspace, sidecarFor(name + '.wav'));
+  const provSidecar = provenancePathFor(filename);
   await writeFileAtomic(filename, raw, { overwrite: false });
-  try { await writeFileAtomic(sidecar, metaText(meta), { overwrite: false }); }
-  catch (error) { await Promise.allSettled([rm(filename, { force: true })]); throw error; }
-  return { url: '/' + encode(name + '.wav'), sidecar: path.basename(sidecar), name, kind };
+  try {
+    await writeFileAtomic(sidecar, metaText(meta), { overwrite: false });
+    if (kind === 'take') {
+      const digest = sha256Buffer(raw);
+      await writeProvenanceSidecar(filename, {
+        workspaceDir: workspace,
+        classification: 'user-attested-mic-take',
+        generatorTool: 'mix-desk/saveTake',
+        sources: [{
+          kind: 'user-attested-mic-take',
+          pluginOrLibrary: 'mix-desk-microphone',
+          sha256: digest,
+          licence: 'user-attested-own-recording',
+        }],
+      });
+    }
+  } catch (error) {
+    await Promise.allSettled([
+      rm(filename, { force: true }),
+      rm(sidecar, { force: true }),
+      ...(kind === 'take' ? [rm(provSidecar, { force: true })] : []),
+    ]);
+    throw error;
+  }
+  return {
+    url: '/' + encode(name + '.wav'),
+    sidecar: path.basename(sidecar),
+    ...(kind === 'take' ? { provenance: path.basename(provSidecar) } : {}),
+    name,
+    kind,
+  };
 }
 
-export async function serveDesk(request, response, folders) {
+export async function serveDesk(request, response, folders, { env = process.env } = {}) {
   let url;
   try { url = new URL(request.url, 'http://127.0.0.1'); }
   catch { json(response, 400, { error: 'Invalid request URL.' }); return true; }
@@ -127,7 +162,7 @@ export async function serveDesk(request, response, folders) {
       return true;
     }
     if (request.method === 'POST' && request.headers.origin !== `http://${request.headers.host}`) throw fail('Expected a same-origin request from the local desk.', 403);
-    if (pathname === '/api/mix-desk/library' && request.method === 'GET') json(response, 200, await catalogue(folders));
+    if (pathname === '/api/mix-desk/library' && request.method === 'GET') json(response, 200, await catalogue(folders, env));
     else if (pathname === '/api/mix-desk/sessions' && request.method === 'GET') {
       const listing = await readdir(folders.workspace, { withFileTypes: true });
       json(response, 200, listing.filter(entry => entry.isFile() && /^desk-[a-z0-9_-]+\.json$/i.test(entry.name))

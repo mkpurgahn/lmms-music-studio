@@ -1,7 +1,13 @@
 // The private sound engine is loaded only when a groovebox tool is called.
-import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { writeFileAtomic } from './fs-atomic.mjs';
+import {
+  verifyAudioFileProvenance,
+  writeDerivedAudioProvenance,
+  writeProvenanceSidecar,
+} from './provenance.mjs';
 
 const name = /^[a-z0-9][a-z0-9_-]{0,79}$/i;
 const missing = 'Install or link atelier-dsp locally, or set LMMS_ATELIER_DSP to its absolute repository path.';
@@ -77,16 +83,48 @@ export function register({ tool, z, root, schemas }) {
     const score = engine.normalizeProject(project);
     const midi = output.toLowerCase().endsWith('.mid');
     const assets = new Map();
+    const inputChecks = [];
     if (!midi) {
       let sourceBytes = 0;
       for (const [id, file] of Object.entries(samples)) {
+        const check = await verifyAudioFileProvenance(path.join(root, file), {
+          workspaceDir: root,
+          env: process.env,
+        });
+        inputChecks.push(check);
         const bytes = await readWorkspaceFile(root, file, maxWavBytes - sourceBytes);
         sourceBytes += bytes.length;
         assets.set(id, engine.decodeWav(bytes));
       }
     }
     const data = midi ? engine.encodeMidi(score) : engine.encodeWav(engine.renderGroovebox(score, { sampleRate: 48000, samples: assets, seed }));
-    await writeFile(path.join(root, output), data, { flag: 'wx' });
+    const outPath = path.join(root, output);
+    await writeFileAtomic(outPath, data, { overwrite: false });
+    if (!midi) {
+      if (inputChecks.length > 0) {
+        await writeDerivedAudioProvenance(outPath, inputChecks, {
+          workspaceDir: root,
+          generatorTool: 'render_groovebox',
+          extraSources: [{
+            classification: 'pure-synthesis',
+            kind: 'pure-synthesis',
+            pluginOrLibrary: 'atelier-groovebox',
+            licence: 'unrestricted-synthesis',
+          }],
+        });
+      } else {
+        await writeProvenanceSidecar(outPath, {
+          workspaceDir: root,
+          classification: 'pure-synthesis',
+          generatorTool: 'render_groovebox',
+          sources: [{
+            kind: 'pure-synthesis',
+            pluginOrLibrary: 'atelier-groovebox',
+            licence: 'unrestricted-synthesis',
+          }],
+        });
+      }
+    }
     return { file: output, format: midi ? 'midi' : 'wav', bytes: data.length };
   });
 }

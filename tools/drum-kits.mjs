@@ -7,6 +7,13 @@ import path from 'node:path';
 import midiPackage from '@tonejs/midi';
 import { promisify } from 'node:util';
 import { decodeWav, encodeWav, truePeak } from '../audio.mjs';
+import { writeFileAtomic } from './fs-atomic.mjs';
+import {
+  isStrictCopyright,
+  verifyAudioFileProvenance,
+  writeDerivedAudioProvenance,
+  writeProvenanceSidecar,
+} from './provenance.mjs';
 import { prepareSf2InstrumentSpec, writeSf2PlayerElement } from './soundfont.mjs';
 import { resolveSoundfontsDir } from './workspace-config.mjs';
 
@@ -462,15 +469,15 @@ export function register({ tool, z, schemas, root, paths, project, moduleGuidanc
   });
 
   const role = z.enum(Object.keys(gm));
-  const midi = z.number().int().min(12).max(119).describe('MIDI note number, 12–119');
-  const write = (file, bytes) => writeFile(path.join(root, file), bytes, { flag: 'wx' });
+  const midi = z.number().int().min(12).max(119).describe('MIDI note number, 12-119');
+  const write = (file, bytes) => writeFileAtomic(path.join(root, file), bytes, { overwrite: false });
   tool('synth_drums', 'Render deterministic 48 kHz mono drum one-shots and an MIT provenance manifest.', {
     outputDirectory: schemas.folderName,
     hits: z.array(z.object({
       role, midi: midi.min(24).max(84).default(36),
       decayMs: z.number().min(20).max(5000).default(400).describe('Total hit length in milliseconds'),
-      click: z.number().min(0).max(1).default(.3).describe('Transient mix, 0–1'),
-      drive: z.number().min(0).max(1).default(0).describe('Saturation amount, 0–1'),
+      click: z.number().min(0).max(1).default(.3).describe('Transient mix, 0-1'),
+      drive: z.number().min(0).max(1).default(0).describe('Saturation amount, 0-1'),
       seed: z.number().int().min(0).max(4294967295).default(1),
     })).min(1).max(16),
   }, async ({ outputDirectory, hits }) => {
@@ -480,6 +487,16 @@ export function register({ tool, z, schemas, root, paths, project, moduleGuidanc
       const { wav, truePeakDb } = peakWav(synthesise(hit));
       const file = outputDirectory + '/' + hit.role + '-' + (i + 1) + '.wav';
       await write(file, wav);
+      await writeProvenanceSidecar(path.join(root, file), {
+        workspaceDir: root,
+        classification: 'pure-synthesis',
+        generatorTool: 'synth_drums',
+        sources: [{
+          kind: 'pure-synthesis',
+          pluginOrLibrary: 'lmms-mcp-drum-synthesis',
+          licence: 'MIT',
+        }],
+      });
       files.push({ file, role: hit.role, rootMidi: hit.midi, midi: gm[hit.role], truePeakDb,
         sha256: sha(wav), licence: 'MIT', author: 'LMMS MCP drum synthesizer',
         source: 'https://github.com/SarutobiSasuke8/lmms-mcp', params: hit });
@@ -491,9 +508,14 @@ export function register({ tool, z, schemas, root, paths, project, moduleGuidanc
 
   tool('fetch_kit', 'Download or reuse the hash-pinned FreePats CC0 one-shots in the user cache. No credentials.', {
     kit: z.literal(kitId).default(kitId),
-  }, () => fetchFreePats(path.join(homedir(), '.cache', 'lmms-mcp', 'drum-kits')));
+  }, async () => {
+    if (isStrictCopyright(process.env)) {
+      throw new Error('fetch_kit is disabled in strict copyright mode; use create_drum_kit (acoustic-cc0 or synth kits), synth_drums, or install_soundfont_pack instead.');
+    }
+    return fetchFreePats(path.join(homedir(), '.cache', 'lmms-mcp', 'drum-kits'));
+  });
 
-  tool('build_kit', 'Map workspace WAVs to GM drum notes. Save an LMMS trigger project and a Decent Sampler preset.', {
+  tool('build_kit', 'Map verified workspace WAVs to GM drum notes and save an LMMS trigger project, MIDI file and kit manifest.', {
     output: schemas.projectName,
     samples: z.array(z.object({ role, file: schemas.workspaceWav, midi: midi.optional() })).min(1).max(16),
     bpm: z.number().min(45).max(240).default(120).describe('Audition project tempo, BPM'),
@@ -501,13 +523,20 @@ export function register({ tool, z, schemas, root, paths, project, moduleGuidanc
     const entries = samples.map(entry => ({ ...entry, midi: entry.midi ?? gm[entry.role] }));
     if (new Set(entries.map(entry => entry.midi)).size !== entries.length) throw new Error('Assign a different MIDI note to each sample');
     const files = [];
-    for (const entry of entries) files.push({ ...entry, sha256: (await workspaceAudio(root, entry.file)).sha256 });
+    const inputChecks = [];
+    for (const entry of entries) {
+      const check = await verifyAudioFileProvenance(path.join(root, entry.file), {
+        workspaceDir: root,
+        env: process.env,
+      });
+      inputChecks.push(check);
+      files.push({ ...entry, sha256: (await workspaceAudio(root, entry.file)).sha256 });
+    }
     const tracks = files.map((entry, i) => ({
       name: entry.role, voice: 'sample', sample: entry.file, rootMidi: entry.midi, role: 'drums', volume: 75, pan: 0,
       patterns: [{ name: entry.role, bars: 1, bar: Math.floor(i / 4), notes: [{ midi: entry.midi, tick: (i % 4) * 48, length: 36, velocity: 90 }] }],
     }));
     const document = project.createSong(bpm, tracks, 70);
-    const preset = output.replace(/\.mmpz?$/i, '.dspreset');
     const manifest = output.replace(/\.mmpz?$/i, '.kit.json');
     const midiFile = output.replace(/\.mmpz?$/i, '.mid');
     const mid = new midiPackage.Midi();
@@ -517,27 +546,29 @@ export function register({ tool, z, schemas, root, paths, project, moduleGuidanc
     for (const [i, entry] of files.entries()) {
       percussion.addNote({ midi: entry.midi, ticks: i * mid.header.ppq, durationTicks: Math.floor(mid.header.ppq * .75), velocity: .9 });
     }
-    const escape = value => value.replaceAll('&', '&amp;').replaceAll('"', '&quot;');
-    const zones = files.map(({ file, midi: key }) =>
-      '    <sample path="' + escape(file) + '" rootNote="' + key + '" loNote="' + key + '" hiNote="' + key + '" />').join('\n');
-    for (const file of [output, preset, manifest, midiFile]) {
+    for (const file of [output, manifest, midiFile]) {
       const exists = await lstat(path.join(root, file)).catch(err => { if (err.code !== 'ENOENT') throw err; });
       if (exists) throw new Error('Output exists: ' + file);
     }
     await project.save(document, output);
-    await write(preset, '<?xml version="1.0" encoding="UTF-8"?>\n<DecentSampler minVersion="1.0.0">\n  <groups><group>\n' + zones + '\n  </group></groups>\n</DecentSampler>\n');
     await write(manifest, JSON.stringify({ files }, null, 2) + '\n');
-    await write(midiFile, mid.toArray());
-    return { project: output, preset, midi: midiFile, manifest, files };
+    await write(midiFile, Buffer.from(mid.toArray()));
+    await writeDerivedAudioProvenance(path.join(root, midiFile), inputChecks, {
+      workspaceDir: root,
+      generatorTool: 'build_kit',
+    });
+    return { project: output, midi: midiFile, manifest, files };
   });
 
-  tool('layer_drum', 'Layer drum WAVs with millisecond offsets and gain; write a 48 kHz WAV with true peak below −1 dBTP.', {
+  tool('layer_drum', 'Layer drum WAVs with millisecond offsets and gain; write a 48 kHz WAV with true peak below -1 dBTP.', {
     output: schemas.wavName,
     layers: z.array(z.object({ file: schemas.workspaceWav,
       offsetMs: z.number().min(0).max(2000).default(0).describe('Delay in milliseconds'),
       gainDb: z.number().min(-48).max(12).default(0).describe('Layer gain in dB'),
     })).min(2).max(8),
   }, async ({ output, layers }) => {
+    const inputChecks = await Promise.all(layers.map(layer =>
+      verifyAudioFileProvenance(path.join(root, layer.file), { workspaceDir: root, env: process.env })));
     const inputs = await Promise.all(layers.map(async layer => ({ ...layer, ...await workspaceAudio(root, layer.file),
       start: Math.round(layer.offsetMs * rate / 1000), gain: 10 ** (layer.gainDb / 20) })));
     const frames = Math.max(...inputs.map(instrument => instrument.start + Math.ceil(instrument.frames * rate / instrument.sampleRate)));
@@ -550,6 +581,10 @@ export function register({ tool, z, schemas, root, paths, project, moduleGuidanc
     }
     const { wav, truePeakDb } = peakWav({ sampleRate: rate, channels, frames });
     await write(output, wav);
+    await writeDerivedAudioProvenance(path.join(root, output), inputChecks, {
+      workspaceDir: root,
+      generatorTool: 'layer_drum',
+    });
     return { file: output, truePeakDb, inputs: inputs.map(i => ({ file: i.file, sha256: i.sha256 })) };
   });
 
@@ -557,13 +592,21 @@ export function register({ tool, z, schemas, root, paths, project, moduleGuidanc
     input: schemas.workspaceWav, output: schemas.wavName, fromMidi: midi, toMidi: midi,
   }, async ({ input, output, fromMidi, toMidi }) => {
     if (Math.abs(toMidi - fromMidi) > 24) throw new Error('Retune by at most 24 semitones');
+    const inputCheck = await verifyAudioFileProvenance(path.join(root, input), {
+      workspaceDir: root,
+      env: process.env,
+    });
     const audio = await workspaceAudio(root, input);
     const ratio = 2 ** ((toMidi - fromMidi) / 12);
     const frames = Math.max(1, Math.floor(audio.frames / ratio));
     const channels = audio.channels.map(ch => Float32Array.from({ length: frames }, (_, i) => interpolate(ch, i * ratio)));
     const { wav, truePeakDb } = peakWav({ ...audio, frames, channels });
     await write(output, wav);
+    await writeDerivedAudioProvenance(path.join(root, output), [inputCheck], {
+      workspaceDir: root,
+      generatorTool: 'tune_drum',
+    });
     return { file: output, truePeakDb, fromMidi, toMidi, inputSha256: audio.sha256 };
   });
-  moduleGuidance.push('Use list_drum_kits and create_drum_kit for pure-synth kits (tight-synth, house-synth, electro-synth, 808-synth) or the CC0 acoustic kit (acoustic-cc0), synth_drums for MIT WAV one-shots, fetch_kit for FreePats CC0 WAVs, and build_kit to map WAVs to GM notes.');
+  moduleGuidance.push('Use list_drum_kits and create_drum_kit for pure-synth kits (tight-synth, house-synth, electro-synth, 808-synth) or the CC0 acoustic kit (acoustic-cc0), synth_drums for MIT WAV one-shots, and build_kit to map verified WAVs to GM notes.');
 }

@@ -2,6 +2,7 @@
 // whose lead is built from a single motif. The plans are data in blueprints.json; see docs/blueprints.md.
 import { readFileSync } from 'node:fs';
 import { parseChord } from '../music.mjs';
+import { isStrictCopyright } from './provenance.mjs';
 import {
   parseKey, readMotif, fitKey, pitches, totalSteps, formatLine, toNotes, fitLength, fitRegister, pitchClassName, degreeOf, fromDegree,
   shift, fitToChord, invert, retrograde, augment, diminish, varyRhythm, fragment, sequence, repeat, callAndResponse, cadence, modes,
@@ -605,9 +606,9 @@ function summary(b, sounds) {
   };
 }
 
-export function register({ tool, z, schemas, project, sounds, moduleGuidance }) {
+export function register({ tool, z, schemas, project, sounds, moduleGuidance, env = process.env }) {
   moduleGuidance.push('For a standard brief (overworld, battle, boss, town, dungeon, title, puzzle, chiptune or a victory stinger), start with list_blueprints and create_from_blueprint rather than a blank create_project, then edit the returned sections with replace_pattern and apply_edits.');
-  moduleGuidance.push('Develop one motif rather than writing a new tune for each section: pass your own motif and progression to create_from_blueprint, and use develop_motif for sequences, inversions, fragments and cadences of it.');
+  moduleGuidance.push('Develop one motif rather than writing a new tune for each section: pass your own motif and progression to create_from_blueprint (required in strict copyright mode), and use develop_motif for sequences, inversions, fragments and cadences of it.');
   const soundsOrNothing = async () => { try { return await sounds.soundFacts(); } catch { return null; } };
   tool('list_blueprints', 'List tested plans for kinds of game music: overworld, battle, boss, calm town, dungeon tension, title or menu, puzzle or chill, chiptune, and a victory fanfare stinger. Each gives sections with bar counts and energy, which roles play where, register lanes, drum grids, bass figure, harmony style, where the lead states, varies and rests, starting sounds and catalogue alternatives.', {
     id: z.enum(blueprintIds).optional().describe('Return only this blueprint.'),
@@ -616,17 +617,25 @@ export function register({ tool, z, schemas, project, sounds, moduleGuidance }) 
     const list = (id ? [getBlueprint(id)] : blueprints).map(b => summary(b, facts));
     return { blueprints: list, leadOps: leadOpNames, counterOps, next: 'create_from_blueprint with your own key, bpm, length, motif and progression.' };
   });
-  tool('create_from_blueprint', 'Write a full editable project from a blueprint. Give a key, bpm and a target length in seconds or bars (the nearest whole form is used and the exact duration reported), and ideally your own motif and chord progression so the music is original. The lead is built from the motif: stated, repeated, varied and rested. Every track gets a role, one lead and at most one counter sound at a time, support parts stay under the lead, and the song length is pinned. Returns the section map (name, start bar, bars) for replace_pattern, apply_edits and analyze_audio.', {
+  tool('create_from_blueprint', 'Write a full editable project from a blueprint. Give a key, bpm and a target length in seconds or bars (the nearest whole form is used and the exact duration reported), and supply your own motif and chord progression (required in strict copyright mode) so the music is original. The lead is built from the motif: stated, repeated, varied and rested. Every track gets a role, one lead and at most one counter sound at a time, support parts stay under the lead, and the song length is pinned. Returns the section map (name, start bar, bars) for replace_pattern, apply_edits and analyze_audio.', {
     blueprint: z.enum(blueprintIds), output: schemas.projectName,
     key: z.string().min(1).max(30).optional().describe('Such as "E minor", "F# dorian" or just "G" (keeps the blueprint mode). Default: the blueprint key.'),
     bpm: z.number().min(45).max(240).optional(),
     lengthSeconds: z.number().min(2).max(1200).optional(), lengthBars: z.number().int().min(1).max(512).optional(),
-    motif: z.string().min(1).max(2000).optional().describe('Your motif as a melody line, "D5:2 F5:2 A5:4 r:4", or scale degrees, "1:2 3:2 5:4 r:4". Any octave: it is moved into the lead lane. Keep it to one or two bars.'),
-    progression: z.string().min(1).max(400).optional().describe('Main progression as chord symbols ("Em C G D") or Roman numerals ("i VI III VII"). ":2" holds a chord two bars.'),
+    motif: z.string().min(1).max(2000).optional().describe('Your motif as a melody line, "D5:2 F5:2 A5:4 r:4", or scale degrees, "1:2 3:2 5:4 r:4". Any octave: it is moved into the lead lane. Keep it to one or two bars. Required in strict copyright mode.'),
+    progression: z.string().min(1).max(400).optional().describe('Main progression as chord symbols ("Em C G D") or Roman numerals ("i VI III VII"). ":2" holds a chord two bars. Required in strict copyright mode.'),
     contrastProgression: z.string().min(1).max(400).optional().describe('Progression for the contrasting sections. Default: the blueprint one in your key.'),
     sounds: z.enum(['default', 'suggested']).default('default').describe('default uses the blueprint voices; suggested swaps pitched tracks for the best measured factory preset for each role.'),
   }, async ({ blueprint, output, lengthSeconds, lengthBars, ...options }) => {
     if (lengthSeconds !== undefined && lengthBars !== undefined) throw new Error('Give lengthSeconds or lengthBars, not both');
+    if (isStrictCopyright(env)) {
+      if (!options.motif || !options.motif.trim()) {
+        throw new Error('Strict copyright mode requires caller-supplied motif in create_from_blueprint rather than falling back to hardcoded blueprint melodies.');
+      }
+      if (!options.progression || !options.progression.trim()) {
+        throw new Error('Strict copyright mode requires caller-supplied progression in create_from_blueprint.');
+      }
+    }
     const catalogue = await soundsOrNothing();
     const plan = buildArrangement(blueprint, { ...options, lengthSeconds, lengthBars, catalogue });
     const problems = checkArrangement(plan);

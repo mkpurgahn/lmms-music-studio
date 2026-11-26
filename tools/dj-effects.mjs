@@ -4,6 +4,7 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { verifyAudioFileProvenance, writeDerivedAudioProvenance } from './provenance.mjs';
 
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 function random(seed) {
@@ -321,13 +322,19 @@ export function register({ tool, z, dsp, root, schemas, render, moduleGuidance }
   const read = async name => {
     const file = path.join(root, name);
     if (!existsSync(file)) throw new Error(`"${name}" was not found in the workspace`);
-    return dsp.decodeWav(await readFile(file));
+    const inputCheck = await verifyAudioFileProvenance(file, { workspaceDir: root, env: process.env });
+    return { audio: dsp.decodeWav(await readFile(file)), inputCheck };
   };
-  const finish = async (audio, output, { targetLufs, ceilingDb }) => {
-    if (existsSync(path.join(root, output))) throw new Error('Output already exists');
+  const finish = async (audio, output, { targetLufs, ceilingDb, inputCheck, generatorTool }) => {
+    const outPath = path.join(root, output);
+    if (existsSync(outPath)) throw new Error('Output already exists');
     const mastering = render.masterAudio(audio, { targetLufs, ceilingDb });
     const wav = dsp.encodeWav(audio);
-    await render.writeAudio(path.join(root, output), wav);
+    await render.writeAudio(outPath, wav);
+    await writeDerivedAudioProvenance(outPath, [inputCheck], {
+      workspaceDir: root,
+      generatorTool,
+    });
     return { audio: output, ...render.measureWav(wav), integratedLufs: dsp.loudness(audio).integratedLufs, ...(mastering ? { mastering } : {}) };
   };
   const common = { audio: schemas.workspaceWav.describe('Workspace WAV: a mix or one stem.'), output: schemas.audioOut, bpm: z.number().min(40).max(260),
@@ -348,16 +355,17 @@ export function register({ tool, z, dsp, root, schemas, render, moduleGuidance }
     ...common,
     effects: z.array(z.object({ type: z.enum(effectNames), startBar: z.number().min(0).max(4000), bars: z.number().min(1 / 64).max(512) }).passthrough()).min(1).max(200),
   }, async ({ audio: name, output, bpm, offsetSeconds, effects: list, targetLufs, ceilingDb }) => {
-    const audio = await read(name);
+    const { audio, inputCheck } = await read(name);
     const applied = applyEffects(audio, bpm, list, { offsetSeconds });
-    return { ...(await finish(audio, output, { targetLufs, ceilingDb })), applied };
+    return { ...(await finish(audio, output, { targetLufs, ceilingDb, inputCheck, generatorTool: 'dj_effects' })), applied };
   });
 
   tool('rearrange_audio', 'Cut a rendered WAV into a new order by bar ranges, as a DJ edit: repeat a section, drop the intro, jump to the break. Segments are joined with short fades.', {
     ...common,
     segments: z.array(z.object({ fromBar: z.number().min(0).max(4000), bars: z.number().min(0.25).max(512), repeat: z.number().int().min(1).max(64).optional(), gainDb: z.number().min(-60).max(12).optional() })).min(1).max(200),
   }, async ({ audio: name, output, bpm, offsetSeconds, segments, targetLufs, ceilingDb }) => {
-    const out = rearrange(await read(name), bpm, segments, { offsetSeconds });
-    return { ...(await finish(out, output, { targetLufs, ceilingDb })), pieces: out.pieces, bars: Number((out.frames / (out.sampleRate * 240 / bpm)).toFixed(3)) };
+    const { audio, inputCheck } = await read(name);
+    const out = rearrange(audio, bpm, segments, { offsetSeconds });
+    return { ...(await finish(out, output, { targetLufs, ceilingDb, inputCheck, generatorTool: 'rearrange_audio' })), pieces: out.pieces, bars: Number((out.frames / (out.sampleRate * 240 / bpm)).toFixed(3)) };
   });
 }

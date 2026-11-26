@@ -2,6 +2,12 @@
 import { lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import midiPackage from '@tonejs/midi';
+import {
+  assertProjectProvenance,
+  assertRealpathContained,
+  verifyAudioFileProvenance,
+  writeDerivedAudioProvenance,
+} from './provenance.mjs';
 
 const LMMS_TPQ = 48;
 const MAX_NOTES = 100000;
@@ -169,7 +175,7 @@ export function buildDocument(project, imported, { voice, masterVolume, volume, 
   return doc;
 }
 
-export function register({ tool, z, root, project, render, dsp, schemas, moduleGuidance }) {
+export function register({ tool, z, root, paths, project, render, dsp, schemas, moduleGuidance }) {
   moduleGuidance.push('To start from an existing score, put a .mid file in the workspace and run import_midi, then shape_performance for a human feel. Pass form to unfold repeats the file plays once. See docs/midi-import.md.');
   const midiFile = z.string().regex(/^(?:[a-z0-9][a-z0-9 _-]{0,79}\/)?[a-z0-9][a-z0-9 _-]{0,99}\.midi?$/i);
 
@@ -192,6 +198,7 @@ export function register({ tool, z, root, project, render, dsp, schemas, moduleG
     const full = path.join(root, file);
     const info = await lstat(full).catch(() => null);
     if (!info?.isFile()) throw new Error(`MIDI file "${file}" was not found in the workspace`);
+    await assertRealpathContained(full, root, 'MIDI file');
     if (info.size > 4 * 1024 * 1024) throw new Error('Expected a MIDI file up to 4 MiB');
     let parsed;
     try {
@@ -201,6 +208,13 @@ export function register({ tool, z, root, project, render, dsp, schemas, moduleG
     }
     const imported = midiToTracks(parsed, { bpm, timing, form, tracks, merge, pedal, volumeChanges, transpose });
     const doc = buildDocument(project, imported, { voice, masterVolume: 86, volume, role });
+    await assertProjectProvenance(doc, {
+      projectName: output,
+      workspaceDir: root,
+      soundfontsDir: paths?.soundfonts,
+      presetsDir: paths?.presets,
+      env: process.env,
+    });
     const saved = await project.save(doc, output);
     const info2 = project.songInfo(doc);
     return {
@@ -220,8 +234,10 @@ export function register({ tool, z, root, project, render, dsp, schemas, moduleG
     tailSeconds: z.number().min(0).max(10).default(1.5),
     fadeOutSeconds: z.number().min(0).max(20).default(1),
   }, async ({ audio: file, output, targetLufs, ceilingDb, trimTail, tailSeconds, fadeOutSeconds }) => {
-    const source = await readFile(path.join(root, file)).catch(() => null);
+    const inPath = path.join(root, file);
+    const source = await readFile(inPath).catch(() => null);
     if (!source) throw new Error(`Audio "${file}" was not found in the workspace`);
+    const inputCheck = await verifyAudioFileProvenance(inPath, { workspaceDir: root, env: process.env });
     const audio = dsp.decodeWav(source);
     const before = { lufs: dsp.loudness(audio).integratedLufs, truePeakDb: dsp.db(dsp.truePeak(audio)) };
     let frames = audio.frames;
@@ -234,7 +250,12 @@ export function register({ tool, z, root, project, render, dsp, schemas, moduleG
     let out = frames < audio.frames ? dsp.slice(audio, 0, frames) : audio;
     if (fadeOutSeconds > 0) dsp.fade(out, 0, Math.min(out.frames, Math.round(fadeOutSeconds * out.sampleRate)));
     const mastering = render.masterAudio(out, { targetLufs, ceilingDb });
-    await render.writeAudio(path.join(root, output), dsp.encodeWav(out));
+    const outPath = path.join(root, output);
+    await render.writeAudio(outPath, dsp.encodeWav(out));
+    await writeDerivedAudioProvenance(outPath, [inputCheck], {
+      workspaceDir: root,
+      generatorTool: 'master_audio',
+    });
     return { file: output, durationSeconds: Number((out.frames / out.sampleRate).toFixed(2)), trimmedSeconds: Number(((audio.frames - out.frames) / audio.sampleRate).toFixed(2)),
       before, after: { lufs: dsp.loudness(out).integratedLufs, truePeakDb: dsp.db(dsp.truePeak(out)) }, ...(mastering ? { mastering } : {}) };
   });

@@ -190,7 +190,8 @@ test('feedback parsing validates the schema and cleans notes', () => {
   assert.deepEqual(parseFeedback('```json\n' + JSON.stringify(feedback) + '\n```').notes.length, 3, 'pasted code fences are accepted');
   assert.throws(() => parseFeedback('{'), /not valid JSON/);
   assert.throws(() => parseFeedback({ ...feedback, schema: 'other' }), /Expected schema/);
-  assert.throws(() => parseFeedback({ ...feedback, version: 2 }), /Unsupported feedback version/);
+  assert.equal(parseFeedback({ ...feedback, version: 2 }).version, 2, 'version 2 feedback is supported');
+  assert.throws(() => parseFeedback({ ...feedback, version: 3 }), /Unsupported feedback version/);
   assert.throws(() => parseFeedback({ ...feedback, notes: [{ seconds: -1, text: 'x' }] }), /valid seconds/);
   assert.throws(() => parseFeedback({ ...feedback, notes: [{ seconds: 1, text: '' }] }), /neither text nor rating/);
   assert.equal(parseFeedback({ ...feedback, notes: [{ seconds: 1, text: 'x', rating: 9, bar: -2 }] }).notes[0].rating, null);

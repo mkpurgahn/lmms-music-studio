@@ -135,17 +135,17 @@ button{cursor:pointer}button.on{background:var(--accent);color:var(--accent-ink)
 .tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;max-height:64px;overflow:auto}
 .tags button{padding:2px 9px;font-size:12.5px;border-radius:999px;background:var(--chip);border-color:transparent}.tags button.on{background:var(--accent);color:var(--accent-ink)}
 main{padding:8px 16px 190px;max-width:1180px;margin:0 auto}
-.item{display:grid;grid-template-columns:40px minmax(0,1.5fr) minmax(0,1fr) 190px 34px;gap:10px;align-items:center;padding:8px 6px;border-bottom:1px solid var(--line)}
+.item{display:grid;grid-template-columns:52px minmax(0,1.5fr) minmax(0,1fr) 190px 68px;gap:10px;align-items:center;padding:8px 6px;border-bottom:1px solid var(--line)}
 .item.sel{background:var(--panel);outline:2px solid var(--accent);outline-offset:-2px;border-radius:8px}
-.play{width:36px;height:36px;border-radius:50%;padding:0;display:grid;place-items:center}.play[disabled]{opacity:.35;cursor:default}
+.play{min-width:46px;height:32px;border-radius:6px;padding:0 8px;font-size:12.5px;display:grid;place-items:center}.play[disabled]{opacity:.35;cursor:default}
 .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.path{color:var(--muted);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .desc{color:var(--muted);font-size:12.5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .meta{display:flex;flex-wrap:wrap;gap:4px}.chip{font-size:11.5px;background:var(--chip);border-radius:999px;padding:1px 8px;white-space:nowrap}.chip.role{background:transparent;border:1px solid var(--line)}
-.viz svg{display:block;width:190px;height:38px}.star{border:0;background:none;font-size:19px;padding:0;color:var(--bar)}.star.on{color:var(--accent)}
+.viz svg{display:block;width:190px;height:38px}.star{border:1px solid var(--line);background:var(--panel);font-size:12px;padding:4px 8px;border-radius:6px;color:var(--muted)}.star.on{color:var(--accent-ink);background:var(--accent);border-color:var(--accent)}
 .bars{display:grid;grid-template-columns:52px 1fr;gap:2px 6px;font-size:10.5px;color:var(--muted);align-items:center}.bars i{display:block;height:6px;border-radius:3px;background:var(--bar)}.bars b{display:block;height:6px;border-radius:3px;background:var(--accent)}
 footer{position:fixed;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--line);padding:8px 16px}
 footer .now{flex:1 1 200px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
-.player button{min-width:40px}.player #toggle{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);min-width:52px;font-size:17px}
+.player button{min-width:52px}.player #toggle{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);min-width:64px;font-weight:600}
 .player #seek{flex:2 1 180px;min-width:120px;accent-color:var(--accent)}.time{font-variant-numeric:tabular-nums;font-size:13px;color:var(--muted);white-space:nowrap}
 .vol{font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:6px}.vol input{width:84px;accent-color:var(--accent)}
 .wave{position:relative;height:46px;cursor:pointer;margin-bottom:6px}.wave svg{width:100%;height:46px;display:block}
@@ -156,23 +156,23 @@ a.open{font-size:12.5px;color:var(--accent)}
 [hidden]{display:none!important}.facets{margin-top:8px}.facets select{padding:5px 8px;font-size:13.5px;max-width:220px}
 details.src{font-size:12.5px;margin-top:2px}details.src summary{cursor:pointer;color:var(--accent)}details.src pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.45 ui-monospace,Consolas,monospace;background:var(--chip);border-radius:6px;padding:8px;margin:4px 0;max-height:260px;overflow:auto}
 .chip.lic{background:transparent;border:1px dashed var(--line)}
-@media (max-width:760px){.item{grid-template-columns:40px minmax(0,1fr) 34px}.item .meta,.item .viz{grid-column:2/3}.viz svg{width:100%}}
+@media (max-width:760px){.item{grid-template-columns:52px minmax(0,1fr) 68px}.item .meta,.item .viz{grid-column:2/3}.viz svg{width:100%}}
 </style></head><body>
 <header>
 <h1>${safeTitle}</h1>
-<div class="row"><input id="q" type="search" placeholder="Search names, folders, tags…" autocomplete="off">
+<div class="row"><input id="q" type="search" placeholder="Search names, folders, tags..." autocomplete="off">
 <select id="source"><option value="">All sources</option></select><select id="role"><option value="">All roles</option></select>
 <select id="sort"><option value="name">Sort: name</option><option value="source">Sort: source</option><option value="bright">Sort: brightest first</option><option value="rating">Sort: best rated</option><option value="newest">Sort: newest first</option></select>
-<a href="/mix-desk/">Mix Desk</a><button id="playable" type="button">Playable only</button><button id="starred" type="button">★ Picks only</button><button id="clear" type="button">Clear filters</button><span class="count" id="count"></span></div>
+<a href="/mix-desk/">Mix Desk</a><button id="playable" type="button">Playable only</button><button id="starred" type="button">Starred</button><button id="clear" type="button">Clear filters</button><span class="count" id="count"></span></div>
 <div class="row types" id="types"></div><div class="row facets" id="facets" hidden></div><div class="tags" id="tags"></div>
 </header>
 <main><div id="list"></div><button class="more" id="more" type="button" hidden>Show more</button><p class="note" id="notes"></p></main>
 <footer><div class="wave" id="wave" hidden></div>
-<div class="row player"><button id="prev" type="button" title="Previous sound">⏮</button><button id="toggle" type="button" title="Play or pause (space)">▶</button><button id="next" type="button" title="Next sound">⏭</button>
+<div class="row player"><button id="prev" type="button" title="Previous sound">Prev</button><button id="toggle" type="button" title="Play or pause (space)">Play</button><button id="next" type="button" title="Next sound">Next</button>
 <span class="time" id="time">0:00 / 0:00</span><input id="seek" type="range" min="0" max="1000" value="0" aria-label="Position in the sound">
 <button id="loop" type="button" title="Repeat this sound">Loop</button><button id="auto" type="button" title="Play the next sound when this one ends">Auto-next</button>
 <label class="vol">Vol <input id="vol" type="range" min="0" max="100" value="90" aria-label="Volume"></label>
-<span class="now" id="now">Click ▶ on a row, or use the arrow keys: up and down change sound, left and right move 5 seconds.</span><button id="copy" type="button">Copy my picks</button></div></footer>
+<span class="now" id="now">Click Play on a row, or use the arrow keys: up and down change sound, left and right move 5 seconds.</span><button id="copy" type="button">Copy my picks</button></div></footer>
 <script id="data" type="application/json">${data}</script>
 <script>
 (function(){
@@ -237,7 +237,7 @@ function draw(){
   if(!current.length){list.appendChild(el('div','empty','Nothing matches. Clear a filter or change the search.'))}
   current.slice(0,state.shown).forEach(function(it,index){
     var row=el('div','item'+(index===state.sel?' sel':''));row.dataset.index=index;
-    var play=el('button','play',it.u?'▶':'–');play.type='button';play.disabled=!it.u;play.title=it.u?'Listen':'No audio for this item yet';play.onclick=function(){select(index,true)};row.appendChild(play);
+    var play=el('button','play',it.u?'Play':'-');play.type='button';play.disabled=!it.u;play.title=it.u?'Listen':'No audio for this item yet';play.onclick=function(){select(index,true)};row.appendChild(play);
     var text=el('div');text.appendChild(el('div','name',it.n));text.appendChild(el('div','path',it.t==='phrase'?it.p:(it.s+(it.c?' / '+it.c:''))));if(it.d)text.appendChild(el('div','desc',it.d));
     if(it.w&&it.u&&location.protocol.indexOf('http')===0){
       var desk=el('a','open','Add to desk');desk.href='/mix-desk/?sample='+encodeURIComponent(it.w)+'&label='+encodeURIComponent(it.n);
@@ -249,16 +249,17 @@ function draw(){
     if(it.sn){var det=el('details','src');det.appendChild(el('summary','','Source note'+(it.sp?' ('+it.sp+')':'')));det.appendChild(el('pre','',it.sn));text.appendChild(det)}row.appendChild(text);
     var meta=el('div','meta');meta.appendChild(el('span','chip role',it.r));var z=it.z||{};[].concat(z.era||[],z.genre||[],z.gameUse||[]).slice(0,5).forEach(function(g){meta.appendChild(el('span','chip',g))});(z.licence||[]).forEach(function(g){meta.appendChild(el('span','chip lic',g))});(it.g||[]).slice(0,it.z?3:5).forEach(function(g){meta.appendChild(el('span','chip',g))});
     if(it.l)meta.appendChild(el('span','chip',fmt(it.l)));
-    if(it.k)meta.appendChild(el('span','chip','rated '+it.k+'/5'));if(it.x)meta.appendChild(el('span','chip','used '+it.x+'×'));row.appendChild(meta);
+    if(it.k)meta.appendChild(el('span','chip','rated '+it.k+'/5'));if(it.x)meta.appendChild(el('span','chip','used '+it.x+'x'));row.appendChild(meta);
     row.appendChild(viz(it));
-    var star=el('button','star'+(stars[key(it)]?' on':''),'★');star.type='button';star.title='Add to my picks';star.onclick=function(){if(stars[key(it)])delete stars[key(it)];else stars[key(it)]=1;save();star.classList.toggle('on')};row.appendChild(star);
+    var isStarred=Boolean(stars[key(it)]);
+    var star=el('button','star'+(isStarred?' on':''),isStarred?'Starred':'Star');star.type='button';star.title='Add to my picks';star.onclick=function(){if(stars[key(it)])delete stars[key(it)];else stars[key(it)]=1;save();var on=Boolean(stars[key(it)]);star.classList.toggle('on',on);star.textContent=on?'Starred':'Star'};row.appendChild(star);
     list.appendChild(row)});
   $('more').hidden=current.length<=state.shown;$('more').textContent='Show more ('+(current.length-state.shown)+' left)';
   $('notes').textContent=(D.notes||[]).join(' ')+' Built '+D.generated+'.'}
 var served=location.protocol.indexOf('http')===0,blocked='Could not play this file. Start the library server (node library-server.mjs) and open the page at the address it prints.';var audio=new Audio(),playing=null,seeking=false;audio.volume=.9;audio.addEventListener('error',function(){$('now').textContent=blocked});
 function fmt(t){if(!isFinite(t)||t<0)t=0;var m=Math.floor(t/60),s=Math.floor(t%60);return m+':'+(s<10?'0':'')+s}
 function tick(){var d=isFinite(audio.duration)&&audio.duration?audio.duration:(playing&&playing.l)||0;$('time').textContent=fmt(audio.currentTime)+' / '+fmt(d);
-  if(!seeking)$('seek').value=d?Math.round(audio.currentTime/d*1000):0;var p=$('prog');if(p)p.style.width=(d?Math.min(100,audio.currentTime/d*100):0)+'%';$('toggle').textContent=audio.paused?'▶':'⏸'}
+  if(!seeking)$('seek').value=d?Math.round(audio.currentTime/d*1000):0;var p=$('prog');if(p)p.style.width=(d?Math.min(100,audio.currentTime/d*100):0)+'%';$('toggle').textContent=audio.paused?'Play':'Pause'}
 function drawWave(it){var box=$('wave');box.innerHTML='';box.hidden=!(it&&it.f);if(!it||!it.f)return;var s=svg(it.f.length,100);it.f.forEach(function(v,i){rect(s,i+.15,50-v/2,.7,Math.max(v,1),'var(--muted)')});box.appendChild(s);var p=el('div','prog');p.id='prog';box.appendChild(p)}
 function seekTo(f){var d=audio.duration;if(d&&isFinite(d)){audio.currentTime=Math.max(0,Math.min(d-.05,f*d));tick()}}
 ['timeupdate','pause','play','loadedmetadata'].forEach(function(name){audio.addEventListener(name,tick)});

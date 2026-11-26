@@ -38,7 +38,11 @@ import {
   writeProvenanceSidecar,
 } from './tools/provenance.mjs';
 import { prepareSf2InstrumentSpec, resolveSf2Path, sf2PathPattern, writeSf2PlayerElement } from './tools/soundfont.mjs';
+import { closeStudioServers, ensureStudioServer } from './library-server.mjs';
+import { assertProjectNotDirtyFromLmms, recordMcpProjectSave } from './tools/lmms-sync.mjs';
 import * as workspaceConfig from './tools/workspace-config.mjs';
+
+export { ensureStudioServer, closeStudioServers };
 import {
   ensureLmmsAsciiPath,
   hasNonAscii,
@@ -186,6 +190,7 @@ export async function load(project) {
   return parse(source.toString('utf8'));
 }
 export async function save(doc, output, overwrite = false) {
+  await assertProjectNotDirtyFromLmms(output, { workspaceDir: root, env: process.env });
   const provenanceReport = await assertProjectProvenance(doc, {
     projectName: output,
     workspaceDir: root,
@@ -208,6 +213,7 @@ export async function save(doc, output, overwrite = false) {
     workspaceDir: root,
     generatorTool: 'save',
   });
+  await recordMcpProjectSave(output, { workspaceDir: root, env: process.env });
   return { project: output };
 }
 function tracks(doc) {
@@ -385,6 +391,7 @@ function edit(name, description, schema, apply, { checked = false } = {}) {
   edits[name] = { schema: z.object(schema), apply, description };
   tool(name, description + ' Writes a new project copy.', { project: projectName, output: projectName, ...schema, ...(checked ? { strict: strictChecks } : {}) },
     async ({ project, output, strict, ...args }) => {
+      await assertProjectNotDirtyFromLmms(project, { workspaceDir: root, env: process.env });
       const doc = await load(project);
       const extra = await apply(doc, args);
       const checks = checked ? await runChecks(postSave, doc, output, strict) : {};
@@ -426,6 +433,7 @@ tool('get_started', 'Read the LMMS Music Studio MCP workflow and discover the lo
     plan: ['resolve_chords', 'search_sounds', 'list_sf2_presets', 'list_drum_kits', 'list_samples', 'preview_sound'],
     compose: ['create_project', 'create_drum_kit', 'set_sf2_instrument', 'inspect_arrangement', 'apply_edits'],
     mix: ['inspect_effects', 'list_effects', 'automate_track', 'render_mix', 'analyze_audio'],
+    studio: ['build_timeline_page', 'build_audition_page', 'read_feedback', 'open_in_lmms', 'sync_from_lmms'],
     deliver: ['audit_copyright', 'export_game_audio', 'render_stems', 'export_midi', 'export_one_shots'],
     external: ['list_external_tools', 'install_soundfont_pack', 'list_soundfonts', 'render_soundfont'],
   },
@@ -1928,10 +1936,12 @@ edit('set_track_role', 'Declare what an instrument track is for: drums, bass, ha
 // Every .mjs file in tools/ that exports register(context) adds its own tools and edits. See tools/README.md.
 export const toolContext = {
   tool, edit, edits, z, dsp, root, generations, imagesKey, explain, moduleGuidance, postSave, exportChecks,
+  env: process.env,
   logger: log,
   fsAtomic: { writeFileAtomic, runCommandSafe },
   provenance: provenanceEngine,
   config: workspaceConfig,
+  studio: { ensureStudioServer, closeStudioServers },
   schemas: { projectName, wavName, audioOut, workspaceWav, factorySample, folderName, pattern, track, note, volume, presetFile,
     loudnessTarget, ceilingTarget, tailMode, section, pngName },
   project: { load, save, parse, tracks, container, children, elements, add, songInfo, setAnchor, isAnchor, isControl, instrumentOf,
@@ -1961,6 +1971,7 @@ tool('apply_edits', 'Apply many edits to one project and save once. Use this for
   edits: z.array(z.object({ op: z.enum(Object.keys(edits)), args: z.record(z.string(), z.any()).default({}) })).min(1).max(400),
   strict: strictChecks,
 }, async ({ project, output, overwrite, edits: steps, strict }) => {
+  await assertProjectNotDirtyFromLmms(project, { workspaceDir: root, env: process.env });
   const doc = await load(project);
   const results = [];
   for (const [index, { op, args }] of steps.entries()) {
@@ -2422,5 +2433,9 @@ function isExecutedDirectly(metaUrl, argv1 = process.argv[1]) {
 if (isExecutedDirectly(import.meta.url)) {
   await mkdir(root, { recursive: true });
   log.info('Starting LMMS Music Studio MCP server', { workspace: root, lmms, soundfonts: soundfontsDirectory });
-  await server.connect(new StdioServerTransport());
+  const transport = new StdioServerTransport();
+  transport.onclose = () => { void closeStudioServers(); };
+  process.stdin.once('end', () => { void closeStudioServers(); });
+  process.stdin.once('close', () => { void closeStudioServers(); });
+  await server.connect(transport);
 }

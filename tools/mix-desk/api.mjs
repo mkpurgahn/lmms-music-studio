@@ -47,10 +47,19 @@ export function localHost(host) {
 export async function readContained(file, base) {
   if (!file || !base) return null;
   try {
+    const rawStat = await lstat(file);
+    if (rawStat.isSymbolicLink() || !rawStat.isFile()) return null;
     const [actual, root] = await Promise.all([realpath(file), realpath(base)]);
     const relative = path.relative(root, actual);
     if (!relative || relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) return null;
-    if (relative.split(path.sep).some(part => part.startsWith('.'))) return null;
+    const parts = relative.split(path.sep);
+    if (parts.some(part => !part || part.startsWith('.'))) return null;
+    let cursor = root;
+    for (const part of parts) {
+      cursor = path.join(cursor, part);
+      const stepInfo = await lstat(cursor);
+      if (stepInfo.isSymbolicLink()) return null;
+    }
     const info = await lstat(actual);
     return info.isFile() ? { path: actual, size: info.size } : null;
   } catch {

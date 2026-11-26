@@ -100,15 +100,17 @@ The timing maths (`barSeconds`, `barBeatAt`, `wrapSongTime`, `startPlan`, `secti
 
 | Field | Meaning |
 | --- | --- |
-| `schema`, `version` | Always `lmms-mcp/audition-feedback` and `1`. `read_feedback` refuses anything else. |
-| `source` | The manifest the page was built from, or null for an A/B page. |
+| `schema`, `version` | `lmms-mcp/audition-feedback` and `2` (both Timeline and Audition emit v2; `read_feedback` reads both `1` and `2`). |
+| `projectFile`, `projectSha256` | Linked workspace `.mmp`/`.mmpz` file and its SHA-256 at build time; `read_feedback` reports `staleProjectRevision` if the project changed since. |
+| `source` | The manifest or project the page was built from, or null for an unlinked A/B page. |
 | `files` | The audio files the page played, relative to the page. |
 | `sections[].rating` | 1 to 5, or null when not rated. |
 | `notes[].seconds` | Song time: the intro starts at 0 and the first loop pass follows it. Repeats of the loop are folded back onto the first pass. |
-| `notes[].bar`, `beat` | Bar counted from zero (as in the project), beat counted from one. Null when there is no tempo. |
+| `notes[].bar`, `displayBar`, `beat` | `bar` is 0-based (matching MCP project tools), `displayBar` is 1-based (`bar + 1`, matching the UI), and `beat` is 1-based. |
+| `notes[].soloedLanes`, `mutedLanes` | Names of soloed or muted lanes/layers when the note was pinned. |
 | `notes[].section` | The section playing when the note was made, or null. |
 | `notes[].rating` | Optional 1 to 5 for that moment. |
-| `notes[].mode` | `mix` or `layers` on a layered page. |
+| `notes[].mode` | `mix`, `layers`, or `stems`. |
 | `notes[].layers` | Each layer's fader in dB, mute and solo, recorded when the listener was in layers mode. |
 | `notes[].compare` | The A/B file label that was playing. |
 

@@ -251,7 +251,7 @@ try {
       assert.notEqual(clock, '0:00.000', 'the clock moves after Play');
       await browser.evaluate("document.getElementById('notetext').value = 'Test note'; document.getElementById('addnote').click()");
       assert.equal(await browser.evaluate("document.querySelector('#notes li .text').textContent"), 'Test note');
-      assert.match(await browser.evaluate("document.querySelector('#notes li .when').textContent"), /bar 0\.\d/);
+      assert.match(await browser.evaluate("document.querySelector('#notes li .when').textContent"), /Bar 1\.\d/);
       assert.equal(await browser.open(base + ab.page, loader('ready')), 'yes');
       assert.deepEqual(browser.problems, [], 'no console output or errors from the A/B page');
       assert.equal(await browser.open(base + 'uneven.html', loader('ready')), 'yes');

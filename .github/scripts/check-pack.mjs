@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 const output = execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['pack', '--dry-run', '--json'], { encoding: 'utf8', shell: process.platform === 'win32' });
 const files = JSON.parse(output)[0].files.map(file => file.path);
 const unwanted = files.filter(file => /\.(wav|ogg|flac|mmp|mmpz|pyc|pyo)$|\.test\.mjs$|(^|\/)test_.*\.py$|(^|\/)__pycache__\/|^output\/|(^|\/)\.env/i.test(file));
-const needed = ['server.mjs', 'library-server.mjs', 'tools/workspace-config.mjs', 'tools/logger.mjs', 'tools/fs-atomic.mjs', 'tools/provenance.mjs', 'tools/sf2-builder.mjs', 'tools/soundfont-pack.mjs', 'licences.json', 'soundfont-lock.json', 'sound-catalogue.json', 'README.md', 'LICENSE', 'CHANGELOG.md'];
+const needed = ['server.mjs', 'library-server.mjs', 'tools/workspace-config.mjs', 'tools/logger.mjs', 'tools/fs-atomic.mjs', 'tools/provenance.mjs', 'tools/lmms-sync.mjs', 'tools/studio-ui/api.mjs', 'tools/studio-ui/timeline.js', 'tools/studio-ui/audition.js', 'tools/studio-ui/studio.css', 'tools/sf2-builder.mjs', 'tools/soundfont-pack.mjs', 'licences.json', 'soundfont-lock.json', 'sound-catalogue.json', 'README.md', 'LICENSE', 'CHANGELOG.md'];
 const missing = needed.filter(file => !files.includes(file));
 if (!files.some(file => file.startsWith('tools/') && file.endsWith('.mjs'))) missing.push('tools/*.mjs');
 if (unwanted.length || missing.length) {

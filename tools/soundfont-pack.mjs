@@ -653,18 +653,37 @@ export async function installSoundfontPack({
     installed.push({ ...built, reused: false });
   }
 
-  // Calculate exact wire/object bytes across unique repos + archives in this cache.
-  const repoObjectSizes = {};
-  const reposRoot = path.join(effectiveCacheDir, 'repos');
-  if (existsSync(reposRoot)) {
-    for (const entry of await readdir(reposRoot, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        repoObjectSizes[entry.name] = await directoryBytes(path.join(reposRoot, entry.name, '.git', 'objects'));
+  const allReused = installed.length > 0 && installed.every(item => item.reused);
+  let archiveDownloadBytes = 0;
+  let totalGitWireBytes = 0;
+
+  if (allReused && !updateTrackedLock) {
+    const seenRepoKeys = new Set();
+    for (const item of installed) {
+      if (item.sourceType === 'archive-sf2') {
+        archiveDownloadBytes += item.downloadBytes ?? 0;
+      } else if (item.sourceType === 'git-sfz') {
+        const repoKey = SOUNDFONT_TARGETS[item.id]?.repoKey ?? item.repository ?? item.id;
+        if (!seenRepoKeys.has(repoKey)) {
+          seenRepoKeys.add(repoKey);
+          totalGitWireBytes += item.gitObjectsBytes ?? 0;
+        }
       }
     }
+  } else {
+    // Calculate exact wire/object bytes across unique repos + archives in this cache.
+    const repoObjectSizes = {};
+    const reposRoot = path.join(effectiveCacheDir, 'repos');
+    if (existsSync(reposRoot)) {
+      for (const entry of await readdir(reposRoot, { withFileTypes: true })) {
+        if (entry.isDirectory()) {
+          repoObjectSizes[entry.name] = await directoryBytes(path.join(reposRoot, entry.name, '.git', 'objects'));
+        }
+      }
+    }
+    archiveDownloadBytes = await directoryBytes(path.join(effectiveCacheDir, 'archives'));
+    totalGitWireBytes = Object.values(repoObjectSizes).reduce((sum, n) => sum + n, 0);
   }
-  const archiveDownloadBytes = await directoryBytes(path.join(effectiveCacheDir, 'archives'));
-  const totalGitWireBytes = Object.values(repoObjectSizes).reduce((sum, n) => sum + n, 0);
 
   const orderedLockEntries = {};
   for (const key of Object.keys(SOUNDFONT_TARGETS)) {
@@ -681,9 +700,15 @@ export async function installSoundfontPack({
     soundfonts: orderedLockEntries,
   };
 
-  await writeFileAtomic(localLockPath, JSON.stringify(lockPayload, null, 2) + '\n', { overwrite: true });
+  const serializedLock = JSON.stringify(lockPayload, null, 2) + '\n';
+  const currentLocalLock = existsSync(localLockPath)
+    ? await readFile(localLockPath, 'utf8').catch(() => null)
+    : null;
+  if (currentLocalLock !== serializedLock) {
+    await writeFileAtomic(localLockPath, serializedLock, { overwrite: true });
+  }
   if (updateTrackedLock) {
-    await writeFileAtomic(TRACKED_LOCK_PATH, JSON.stringify(lockPayload, null, 2) + '\n', { overwrite: true });
+    await writeFileAtomic(TRACKED_LOCK_PATH, serializedLock, { overwrite: true });
   }
 
   const totalSf2Bytes = installed.reduce((sum, item) => sum + (item.sf2Bytes ?? 0), 0);

@@ -29,8 +29,15 @@ $nodeArgs = @($packCli, '--pack', $packArg, '--destination', $Destination)
 if ($Force) { $nodeArgs += '--force' }
 if ($UpdateLock) { $nodeArgs += '--write-tracked-lock' }
 
-& node @nodeArgs
-if ($LASTEXITCODE -ne 0) {
+$prevErrorAction = $ErrorActionPreference
+try {
+    $ErrorActionPreference = 'Continue'
+    & node @nodeArgs
+    $exitCode = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $prevErrorAction
+}
+if ($exitCode -ne 0) {
     throw "SoundFont pack installation failed for pack(s): $packArg"
 }
 Write-Output "Verified CC0-1.0 SoundFont pack ($packArg) ready in $Destination"

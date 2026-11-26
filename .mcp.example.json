@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "lmms-music-studio": {
+      "command": "node",
+      "args": [
+        "C:\\path\\to\\lmms-music-studio\\server.mjs"
+      ],
+      "env": {
+        "LMMS_WORKSPACE": "C:\\Users\\YOUR_USERNAME\\Music\\LMMS Music Studio",
+        "LMMS_SOUNDFONTS": "C:\\Users\\YOUR_USERNAME\\AppData\\Local\\lmms-music-studio\\soundfonts",
+        "LMMS_STRICT_COPYRIGHT": "1"
+      }
+    }
+  }
+}

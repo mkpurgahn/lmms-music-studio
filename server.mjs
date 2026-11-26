@@ -67,14 +67,13 @@ export const samplesDirectory = resolveLmmsSamplesDir(process.env, lmms);
 export const pluginDirectory = resolveLmmsPluginsDir(process.env, lmms);
 export const ffmpeg = resolveFfmpegExecutable(process.env);
 const instructions = [
-  'LMMS Music Studio MCP composes, edits, analyses and exports editable audio using saved LMMS projects.',
-  'Start with get_started for workflow and local capabilities, then use tools/list for exact schemas.',
-  'Search and audition sounds with search_sounds, list_samples, list_soundfonts and preview_sound, then build arrangements with create_project.',
-  'Edit and mix with apply_edits. Render before delivery, inspect levels and the loop seam with analyze_audio, then use export_game_audio for loops, layers and stingers.',
-  'Preserve the editable MMP or MMPZ and its referenced samples. A beat is 48 ticks and a 4/4 bar is 192 ticks. Project bars start at zero.',
-  'Stock LMMS handles saved projects. Fathom rendering, FluidSynth SoundFont rendering and Windows live control require optional local components.',
-  'Use list_external_tools to discover optional audio tools and local setup status.',
-  'Arrangement rules: give every track a role (drums, bass, harmony, lead, counter, texture or fx). One lead melody at a time, with at most one counter-melody under it. Bass and harmony support the lead and stay out of its register. Build sections by repeating and varying one motif, and leave space.',
+  'LMMS Music Studio V3 MCP composes, arranges, mixes, audits and exports editable songs and game audio using saved LMMS 1.2.2 projects (.mmp and .mmpz).',
+  'Start with get_started and get_taste before composing or mixing, then inspect tool schemas via tools/list.',
+  'Strict copyright provenance (LMMS_STRICT_COPYRIGHT=1 by default) enforces clean ownership: discover locked CC0-1.0 acoustic SoundFonts with list_sf2_presets and assign them with voice: "sf2" or set_sf2_instrument (bank 0 melodic, bank 128 GM drums), use pure-synth drum voices (kick, snare, hat, clap) or list_drum_kits / create_drum_kit (tight-synth, house-synth, electro-synth, 808-synth, and CC0 acoustic-cc0 Bank 128 kit), and search clean synth presets with search_sounds and preview_sound. Never rely on third-party loops, unverified WAVs, CC-BY assets, or stock factory drum samples in strict mode.',
+  'Give every track a role (drums, bass, harmony, lead, counter, texture or fx): keep one lead melody at a time, at most one counter-melody, and keep bass and harmony out of the lead register. Run lint_arrangement before rendering. One beat is 48 ticks, one 4/4 bar is 192 ticks, and project bars start at zero.',
+  'Batch mix changes with apply_edits and auto_balance. Render aligned stems with render_stems and master with render_mix: pass tail: "ring" for full songs so instrument and reverb decay rings out naturally with sample-exact stem alignment, or tail: "wrap" to fold echo and reverb tails seamlessly across game loop boundaries.',
+  'Check mixes objectively with analyze_audio and verify provenance with audit_copyright. For ear-directed human review, call build_timeline_page (multi-track WebAudio Solo/Mute stem timeline) or build_audition_page (gapless game export or loudness-matched A/B comparison of [beforeWav, afterWav]), share the live studioUrl (http://127.0.0.1:<port>/studio/...), read Unified Feedback v2 bar-pinned notes with read_feedback, and persist lasting listener preferences with remember_taste.',
+  'Two-way Desktop LMMS safety: after opening a project in Desktop LMMS via open_in_lmms, always call sync_from_lmms before any further MCP project edits so user saves (.mmp or .mmpz) are provenance-checked and preserved.',
 ].join(' ');
 // Feature modules in tools/ add their own guidance here; get_started returns it.
 const moduleGuidance = [];
@@ -141,7 +140,7 @@ const track = z.object({
   name: z.string().min(1).max(100),
   voice: z.enum(['pluck', 'bass', 'pad', 'kick', 'snare', 'hat', 'clap', 'sample', 'preset', 'sf2'])
     .describe('pluck, bass and pad are built-in synths; kick, snare, hat and clap are pure native LMMS drum synths; sf2 plays a SoundFont (.sf2) via native sf2player; sample plays a workspace WAV or a stock LMMS sample; preset loads a factory preset.'),
-  sample: workspaceWav.optional(), factorySample: factorySample.optional().describe('Stock LMMS sample such as "drums/snare01.ogg". See list_samples.'),
+  sample: workspaceWav.optional(), factorySample: factorySample.optional().describe('Stock LMMS sample path (disabled when LMMS_STRICT_COPYRIGHT=1; in strict mode use voice: "sf2" with list_sf2_presets, pure-synth drum voices kick/snare/hat/clap, or provenanced workspace WAVs).'),
   preset: presetFile.optional(),
   sf2: z.string().regex(sf2PathPattern).optional().describe('SoundFont (.sf2) path relative to LMMS_SOUNDFONTS or workspace (required when voice is "sf2"). See list_sf2_presets.'),
   bank: z.number().int().min(0).max(128).optional().describe('SoundFont MIDI bank (0 melodic, 128 GM drums; default 0).'),
@@ -424,22 +423,31 @@ tool('get_started', 'Read the LMMS Music Studio MCP workflow and discover the lo
   workspace: root,
   setup: {
     lmmsExecutable: lmms,
+    lmmsFound: path.isAbsolute(lmms) ? existsSync(lmms) : true,
     soundfontsDirectory,
+    soundfontsDirectoryFound: existsSync(soundfontsDirectory),
     strictCopyright: isStrictCopyright(process.env),
+    oggOutput: await hasFfmpeg(),
     fathomConfigured: Boolean(process.env.LMMS_FATHOM_WORKLET && existsSync(process.env.LMMS_FATHOM_WORKLET)),
     liveToolsEnabled: !isStrictCopyright(process.env) && process.platform === 'win32' && /^[a-zA-Z0-9_-]+$/.test(process.env.LMMS_LIVE_PIPE ?? ''),
   },
+  v3StudioProtocol: {
+    instruments: 'Call list_sf2_presets for locked CC0-1.0 acoustic SoundFonts and use voice: "sf2" (bank 0 melodic, bank 128 GM drums) or set_sf2_instrument; use list_drum_kits / create_drum_kit for pure-synth kits (tight-synth, house-synth, electro-synth, 808-synth) or CC0 acoustic-cc0 (Bank 128 virtuosity-drums.sf2).',
+    renderTails: 'Pass tail: "ring" to render_mix and render_stems for natural song endings with sample-exact stem frame alignment; pass tail: "wrap" for seamless game loops.',
+    earDirectedReview: 'Render stems + master, check analyze_audio, lint_arrangement, and audit_copyright, then call build_timeline_page (or build_audition_page with files: [beforeWav, afterWav] for loudness-matched A/B) and share studioUrl. Read listener notes via read_feedback (v2) and save lasting preferences via remember_taste.',
+    desktopLmmsSync: 'Before mutating any project opened with open_in_lmms, call sync_from_lmms so user saves (.mmp/.mmpz) are adopted and provenance-verified.',
+  },
   workflows: {
-    plan: ['resolve_chords', 'search_sounds', 'list_sf2_presets', 'list_drum_kits', 'list_samples', 'preview_sound'],
-    compose: ['create_project', 'create_drum_kit', 'set_sf2_instrument', 'inspect_arrangement', 'apply_edits'],
-    mix: ['inspect_effects', 'list_effects', 'automate_track', 'render_mix', 'analyze_audio'],
-    studio: ['build_timeline_page', 'build_audition_page', 'read_feedback', 'open_in_lmms', 'sync_from_lmms'],
-    deliver: ['audit_copyright', 'export_game_audio', 'render_stems', 'export_midi', 'export_one_shots'],
-    external: ['list_external_tools', 'install_soundfont_pack', 'list_soundfonts', 'render_soundfont'],
+    plan: ['get_taste', 'resolve_chords', 'list_sf2_presets', 'list_drum_kits', 'search_sounds', 'list_blueprints', 'preview_sound'],
+    compose: ['create_project', 'create_from_blueprint', 'create_drum_kit', 'set_sf2_instrument', 'write_melody', 'develop_motif', 'shape_performance', 'lint_arrangement', 'apply_edits'],
+    mix: ['auto_balance', 'inspect_effects', 'list_effects', 'automate_track', 'render_stems', 'render_mix', 'analyze_audio', 'compare_to_reference'],
+    studio: ['build_timeline_page', 'build_audition_page', 'read_feedback', 'remember_taste', 'open_in_lmms', 'sync_from_lmms'],
+    deliver: ['audit_copyright', 'quality_report', 'export_game_audio', 'export_midi', 'export_one_shots'],
+    external: ['install_soundfont_pack', 'list_external_tools', 'list_soundfonts', 'render_soundfont'],
   },
 }));
 const declaredBars = items => Math.max(...items.flatMap(item => item.patterns.map(part => part.bar + part.bars)));
-tool('create_project', 'Create an editable 4/4 LMMS project. One bar is 192 ticks, one beat is 48. Each pattern takes raw notes, a drum step grid, a melody line or a chord progression. Stock drum notes play at original pitch on MIDI 69; give one-shots a note length that covers the sample. The song is pinned to lengthBars (default: the last declared pattern bar) even when its final bars are empty.', {
+tool('create_project', 'Create an editable 4/4 LMMS project. One bar is 192 ticks, one beat is 48, and bars start at 0. Each pattern takes raw notes, a drum step grid, a melody line or a chord progression. Use voice: "sf2" with list_sf2_presets for locked CC0 acoustic instruments (bank 0 melodic, bank 128 GM drums) and kick/snare/hat/clap or create_drum_kit for synthesized drums. The song is pinned to lengthBars (default: the last declared pattern bar) even when its final bars are empty.', {
   output: projectName, bpm: z.number().min(45).max(240), tracks: z.array(track).min(1).max(48),
   lengthBars: z.number().int().min(1).max(1000).optional(), masterVolume: volume.default(86),
   tuning: z.enum(['concert', 'preset']).default('concert').describe('How preset voices are tuned; see apply_preset.'),
@@ -481,7 +489,7 @@ tool('read_pattern', 'Read the notes in a saved instrument pattern. Bar numbers 
   };
 });
 
-tool('render_fathom_track', 'Render LMMS piano-roll notes through Fathom Atelier’s synth worklet with cutoff automation. Save a WAV and an LMMS copy with the rendered audio and editable source notes.', {
+tool('render_fathom_track', "Render LMMS piano-roll notes through Fathom Atelier's synth worklet with cutoff automation. Save a WAV and an LMMS copy with the rendered audio and editable source notes.", {
   project: projectName, output: projectName, audio: wavName, trackName: z.string().min(1).max(100),
   patchFile: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,79}\.json$/i).optional(),
   patchId: patchId.optional(),
@@ -504,7 +512,7 @@ tool('render_fathom_track', 'Render LMMS piano-roll notes through Fathom Atelier
   const bpm = Number(head?.getAttribute('bpm') || 140);
   if (children(head, 'bpm').length || !Number.isFinite(bpm) || bpm < 45 || bpm > 240 ||
       Number(head?.getAttribute('timesig_numerator') || 4) !== 4 || Number(head?.getAttribute('timesig_denominator') || 4) !== 4) {
-    throw new Error('Fathom rendering requires static tempo (45–240 BPM) and 4/4 metre');
+    throw new Error('Fathom rendering requires static tempo (45-240 BPM) and 4/4 metre');
   }
   const durationTicks = bars * 192;
   if (cutoff[0].tick !== 0 || cutoff.some(({ tick }, index) =>

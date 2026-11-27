@@ -9,11 +9,17 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import {
   PACK_TARGET_IDS,
+  installUserSkills,
   mergeMcpConfig,
+  mergeVscodeMcpConfig,
+  resolveGlobalMcpConfigPath,
   resolveInstallerPaths,
+  resolveUserSkillRoots,
   upsertMcpConfigFile,
+  upsertVscodeMcpConfigFile,
   verifyInstalledPacks,
 } from './installer-config.mjs';
+import { runCommandSafe } from './fs-atomic.mjs';
 import { PACK_NAMES, targetsForPack } from './soundfont-pack.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -130,17 +136,25 @@ test('upsertMcpConfigFile creates .mcp.json when missing and refuses to clobber 
     },
   });
 
-  // Malformed user JSON must never be overwritten.
+  // Malformed user JSON must never be overwritten or echoed into error text.
   const brokenPath = path.join(dir, 'broken.mcp.json');
-  const brokenContent = '{ "mcpServers": { "other-server": [unclosed }';
+  const sentinelSecret = 'UNIT_TEST_SECRET_SENTINEL_NEVER_ECHO_48291';
+  const brokenContent = `{ "mcpServers": { "other-server": { "token": "${sentinelSecret}" }, "broken": [unclosed }`;
   await writeFile(brokenPath, brokenContent, 'utf8');
   await assert.rejects(
-    upsertMcpConfigFile(brokenPath, {
-      repoRoot: 'F:\\projects\\lmms-music-studio',
-      workspace: 'F:\\Music\\Studio',
-      soundfontsDir: 'F:\\Music\\SoundFonts',
-      platform: 'win32',
-    }),
+    async () => {
+      try {
+        await upsertMcpConfigFile(brokenPath, {
+          repoRoot: 'F:\\projects\\lmms-music-studio',
+          workspace: 'F:\\Music\\Studio',
+          soundfontsDir: 'F:\\Music\\SoundFonts',
+          platform: 'win32',
+        });
+      } catch (err) {
+        assert.ok(!String(err.message).includes(sentinelSecret), 'Error message must never echo file contents');
+        throw err;
+      }
+    },
     /not valid JSON/,
   );
   assert.equal(await readFile(brokenPath, 'utf8'), brokenContent);
@@ -153,6 +167,241 @@ test('upsertMcpConfigFile creates .mcp.json when missing and refuses to clobber 
     }),
     /JSON object/,
   );
+});
+
+test('merge-vscode-mcp non-destructively creates and merges .vscode/mcp.json preserving servers and inputs', async t => {
+  const dir = await makeScratch(t, 'installer-vscode-mcp-');
+  const vscodeMcpPath = path.join(dir, '.vscode', 'mcp.json');
+
+  // Creates .vscode/ directory and mcp.json when missing.
+  const createdRun = await runCommandSafe(process.execPath, [
+    path.join(repoRoot, 'tools', 'installer-config.mjs'),
+    '--mode', 'merge-vscode-mcp',
+    '--mcp-path', vscodeMcpPath,
+    '--repo-root', 'C:\\dev\\lmms-music-studio',
+    '--workspace', 'C:\\Users\\artist\\Music\\LMMS Music Studio',
+    '--soundfonts', 'C:\\Users\\artist\\AppData\\Local\\lmms-music-studio\\soundfonts',
+  ]);
+  const createdJson = JSON.parse(createdRun.stdout.trim());
+  assert.deepEqual(Object.keys(createdJson).sort(), ['changed', 'created', 'path']);
+  assert.equal(createdJson.created, true);
+  assert.equal(createdJson.changed, true);
+  assert.equal(createdJson.path, path.resolve(vscodeMcpPath));
+
+  const expectedServer = {
+    type: 'stdio',
+    command: 'node',
+    args: ['C:\\dev\\lmms-music-studio\\server.mjs'],
+    env: {
+      LMMS_WORKSPACE: 'C:\\Users\\artist\\Music\\LMMS Music Studio',
+      LMMS_SOUNDFONTS: 'C:\\Users\\artist\\AppData\\Local\\lmms-music-studio\\soundfonts',
+      LMMS_STRICT_COPYRIGHT: '1',
+    },
+  };
+  assert.deepEqual(JSON.parse(await readFile(vscodeMcpPath, 'utf8')), {
+    servers: {
+      'lmms-music-studio': expectedServer,
+    },
+  });
+
+  // Seed existing VS Code inputs + sibling servers + custom LMMS_EXECUTABLE and verify non-destructive merge.
+  const existingVscodeConfig = {
+    inputs: [
+      { id: 'custom-api-key', type: 'promptString', description: 'API Key', password: true },
+    ],
+    servers: {
+      'github-local': {
+        type: 'stdio',
+        command: 'npx',
+        args: ['-y', '@example/vscode-mcp'],
+      },
+      'lmms-music-studio': {
+        command: 'node',
+        args: ['D:\\stale\\server.mjs'],
+        env: {
+          LMMS_WORKSPACE: 'D:\\stale\\ws',
+          LMMS_EXECUTABLE: 'D:\\AudioApps\\LMMS\\lmms.exe',
+        },
+      },
+    },
+  };
+  await writeFile(vscodeMcpPath, JSON.stringify(existingVscodeConfig, null, 2) + '\n', 'utf8');
+
+  const merged = await upsertVscodeMcpConfigFile(vscodeMcpPath, {
+    repoRoot: 'C:\\dev\\lmms-music-studio',
+    workspace: 'C:\\Users\\artist\\Music\\LMMS Music Studio',
+    soundfontsDir: 'C:\\Users\\artist\\AppData\\Local\\lmms-music-studio\\soundfonts',
+    strictCopyright: '1',
+    platform: 'win32',
+  });
+  assert.deepEqual(merged, {
+    created: false,
+    changed: true,
+    path: path.resolve(vscodeMcpPath),
+  });
+
+  const vscodeOnDisk = JSON.parse(await readFile(vscodeMcpPath, 'utf8'));
+  assert.deepEqual(vscodeOnDisk.inputs, existingVscodeConfig.inputs);
+  assert.deepEqual(vscodeOnDisk.servers['github-local'], existingVscodeConfig.servers['github-local']);
+  assert.deepEqual(vscodeOnDisk.servers['lmms-music-studio'], {
+    type: 'stdio',
+    command: 'node',
+    args: ['C:\\dev\\lmms-music-studio\\server.mjs'],
+    env: {
+      LMMS_WORKSPACE: 'C:\\Users\\artist\\Music\\LMMS Music Studio',
+      LMMS_SOUNDFONTS: 'C:\\Users\\artist\\AppData\\Local\\lmms-music-studio\\soundfonts',
+      LMMS_STRICT_COPYRIGHT: '1',
+      LMMS_EXECUTABLE: 'D:\\AudioApps\\LMMS\\lmms.exe',
+    },
+  });
+
+  const mtimeBefore = (await stat(vscodeMcpPath)).mtimeMs;
+  const noop = await upsertVscodeMcpConfigFile(vscodeMcpPath, {
+    repoRoot: 'C:\\dev\\lmms-music-studio',
+    workspace: 'C:\\Users\\artist\\Music\\LMMS Music Studio',
+    soundfontsDir: 'C:\\Users\\artist\\AppData\\Local\\lmms-music-studio\\soundfonts',
+    strictCopyright: '1',
+    platform: 'win32',
+  });
+  assert.equal(noop.created, false);
+  assert.equal(noop.changed, false);
+  assert.equal((await stat(vscodeMcpPath)).mtimeMs, mtimeBefore);
+
+  assert.throws(
+    () => mergeVscodeMcpConfig({ servers: ['bad'] }, {
+      repoRoot: 'C:\\dev\\lmms-music-studio',
+      workspace: 'C:\\Music',
+      soundfontsDir: 'C:\\SF2',
+    }),
+    /JSON object/,
+  );
+});
+
+test('hermetic global MCP merge and dual user skill installation (.copilot/skills + .agents/skills) preserve secrets and clean legacy dirs', async t => {
+  const dir = await makeScratch(t, 'installer-global-hermetic-');
+  const fakeGlobalMcpPath = path.join(dir, 'home', '.copilot', 'mcp-config.json');
+  const fakeCopilotSkillsDir = path.join(dir, 'home', '.copilot', 'skills');
+  const fakeAgentsSkillsDir = path.join(dir, 'home', '.agents', 'skills');
+
+  assert.equal(
+    resolveGlobalMcpConfigPath({ env: { LMMS_INSTALLER_GLOBAL_MCP_PATH: fakeGlobalMcpPath } }),
+    path.resolve(fakeGlobalMcpPath),
+  );
+  assert.deepEqual(
+    resolveUserSkillRoots({
+      env: {
+        LMMS_INSTALLER_COPILOT_SKILLS_DIR: fakeCopilotSkillsDir,
+        LMMS_INSTALLER_AGENTS_SKILLS_DIR: fakeAgentsSkillsDir,
+      },
+    }),
+    {
+      copilotSkillsRoot: path.resolve(fakeCopilotSkillsDir),
+      agentsSkillsRoot: path.resolve(fakeAgentsSkillsDir),
+    },
+  );
+
+  // Pre-seed global mcp-config.json with another server containing a secret token that must NEVER be printed.
+  await mkdir(path.dirname(fakeGlobalMcpPath), { recursive: true });
+  const secretSentinel = 'DO_NOT_LOG_GLOBAL_MCP_TOKEN_77341';
+  const existingGlobalMcp = {
+    mcpServers: {
+      'private-corp-mcp': {
+        command: 'node',
+        args: ['C:\\corp\\mcp.js'],
+        env: {
+          CORP_AUTH_TOKEN: secretSentinel,
+        },
+      },
+    },
+  };
+  await writeFile(fakeGlobalMcpPath, JSON.stringify(existingGlobalMcp, null, 2) + '\n', 'utf8');
+
+  const globalMergeRun = await runCommandSafe(
+    process.execPath,
+    [
+      path.join(repoRoot, 'tools', 'installer-config.mjs'),
+      '--mode', 'merge-global-mcp',
+      '--repo-root', 'D:\\repos\\lmms-music-studio',
+      '--workspace', 'D:\\Music\\Workspace',
+      '--soundfonts', 'D:\\Music\\SoundFonts',
+    ],
+    {
+      env: {
+        ...process.env,
+        LMMS_INSTALLER_GLOBAL_MCP_PATH: fakeGlobalMcpPath,
+      },
+    },
+  );
+
+  assert.ok(!globalMergeRun.stdout.includes(secretSentinel), 'stdout must never contain global MCP secrets');
+  assert.ok(!globalMergeRun.stderr.includes(secretSentinel), 'stderr must never contain global MCP secrets');
+  assert.ok(!globalMergeRun.stdout.includes('private-corp-mcp'), 'stdout must only report { created, changed, path }');
+
+  const globalResult = JSON.parse(globalMergeRun.stdout.trim());
+  assert.deepEqual(globalResult, {
+    created: false,
+    changed: true,
+    path: path.resolve(fakeGlobalMcpPath),
+  });
+
+  const mergedGlobalOnDisk = JSON.parse(await readFile(fakeGlobalMcpPath, 'utf8'));
+  assert.deepEqual(mergedGlobalOnDisk.mcpServers['private-corp-mcp'], existingGlobalMcp.mcpServers['private-corp-mcp']);
+  assert.deepEqual(mergedGlobalOnDisk.mcpServers['lmms-music-studio'], {
+    command: 'node',
+    args: ['D:\\repos\\lmms-music-studio\\server.mjs'],
+    env: {
+      LMMS_WORKSPACE: 'D:\\Music\\Workspace',
+      LMMS_SOUNDFONTS: 'D:\\Music\\SoundFonts',
+      LMMS_STRICT_COPYRIGHT: '1',
+    },
+  });
+
+  // Pre-seed legacy lmms-music-studio directories in both user skill roots and verify hermetic CLI install.
+  const legacyCopilotDir = path.join(fakeCopilotSkillsDir, 'lmms-music-studio');
+  const legacyAgentsDir = path.join(fakeAgentsSkillsDir, 'lmms-music-studio');
+  await mkdir(legacyCopilotDir, { recursive: true });
+  await mkdir(legacyAgentsDir, { recursive: true });
+  await writeFile(path.join(legacyCopilotDir, 'SKILL.md'), 'legacy', 'utf8');
+  await writeFile(path.join(legacyAgentsDir, 'SKILL.md'), 'legacy', 'utf8');
+
+  const skillRun = await runCommandSafe(
+    process.execPath,
+    [
+      path.join(repoRoot, 'tools', 'installer-config.mjs'),
+      '--mode', 'install-user-skills',
+      '--repo-root', repoRoot,
+    ],
+    {
+      env: {
+        ...process.env,
+        LMMS_INSTALLER_COPILOT_SKILLS_DIR: fakeCopilotSkillsDir,
+        LMMS_INSTALLER_AGENTS_SKILLS_DIR: fakeAgentsSkillsDir,
+      },
+    },
+  );
+  const skillResult = JSON.parse(skillRun.stdout.trim());
+  assert.equal(skillResult.copilotSkillDir, path.join(fakeCopilotSkillsDir, 'make-music'));
+  assert.equal(skillResult.agentsSkillDir, path.join(fakeAgentsSkillsDir, 'make-music'));
+  assert.equal(existsSync(legacyCopilotDir), false);
+  assert.equal(existsSync(legacyAgentsDir), false);
+
+  for (const fileName of ['SKILL.md', 'producer-tool-reference.md']) {
+    const expectedBuf = await readFile(path.join(repoRoot, 'skills', 'make-music', fileName));
+    const copilotBuf = await readFile(path.join(fakeCopilotSkillsDir, 'make-music', fileName));
+    const agentsBuf = await readFile(path.join(fakeAgentsSkillsDir, 'make-music', fileName));
+    assert.equal(Buffer.compare(copilotBuf, expectedBuf), 0, `.copilot/skills/make-music/${fileName} mismatch`);
+    assert.equal(Buffer.compare(agentsBuf, expectedBuf), 0, `.agents/skills/make-music/${fileName} mismatch`);
+  }
+
+  // Direct API call is idempotent when legacy folders are already gone.
+  const repeatSkills = await installUserSkills({
+    repoRoot,
+    env: {
+      LMMS_INSTALLER_COPILOT_SKILLS_DIR: fakeCopilotSkillsDir,
+      LMMS_INSTALLER_AGENTS_SKILLS_DIR: fakeAgentsSkillsDir,
+    },
+  });
+  assert.deepEqual(repeatSkills.removedLegacyDirs, []);
 });
 
 test('PACK_TARGET_IDS matches soundfont-pack targets and verifyInstalledPacks checks SHA-256 integrity', async t => {
@@ -248,6 +497,7 @@ test('Phase 5 docs, skills, installer, and MCP onboarding stay emoji-free, plain
     'setup-libraries-windows.ps1',
     'server.mjs',
     '.mcp.example.json',
+    '.vscode/mcp.example.json',
   ];
   for (const rel of mustBeEmojiFree) {
     const full = path.join(repoRoot, rel);
@@ -274,26 +524,43 @@ test('Phase 5 docs, skills, installer, and MCP onboarding stay emoji-free, plain
     );
   }
 
-  // Project and user-distributable make-music skill files must match byte-for-byte, and legacy skill folders must be gone.
+  // Project and user-distributable make-music skill files must match byte-for-byte, have zero hardcoded machine paths, and legacy skill folders must be gone.
   for (const fileName of ['SKILL.md', 'producer-tool-reference.md']) {
     const mainBuf = await readFile(path.join(repoRoot, 'skills/make-music', fileName));
     const ghBuf = await readFile(path.join(repoRoot, '.github/skills/make-music', fileName));
     assert.equal(Buffer.compare(mainBuf, ghBuf), 0, `skills/make-music/${fileName} and .github/skills/make-music/${fileName} must match byte-for-byte`);
+    assert.doesNotMatch(mainBuf.toString('utf8'), /F:\\projects\\lmms-music-studio/i, `${fileName} must not contain hardcoded local checkout paths`);
   }
+  const skillMarkdown = await readFile(path.join(repoRoot, 'skills/make-music/SKILL.md'), 'utf8');
+  assert.match(skillMarkdown, /via LMMS Music Studio \(`mkpurgahn\/lmms-music-studio`\)/);
   assert.equal(existsSync(path.join(repoRoot, 'skills/lmms-game-audio')), false);
   assert.equal(existsSync(path.join(repoRoot, 'skills/lmms-music-studio')), false);
   assert.equal(existsSync(path.join(repoRoot, '.github/skills/lmms-music-studio')), false);
 
-  // Verify installer installs make-music (SKILL.md + producer-tool-reference.md) and removes legacy lmms-music-studio skill dir.
+  // Verify installer wires .mcp.json, .vscode/mcp.json, global mcp-config.json (-SkipGlobalMcp), and both user skill roots.
   const installerScript = await readFile(path.join(repoRoot, 'install-windows.ps1'), 'utf8');
   assert.match(installerScript, /skills\\make-music/);
   assert.match(installerScript, /producer-tool-reference\.md/);
-  assert.match(installerScript, /Join-Path \$targetSkillsRoot 'lmms-music-studio'/);
-  assert.match(installerScript, /Remove-Item -LiteralPath \$legacySkillDir -Recurse -Force/);
+  assert.match(installerScript, /merge-vscode-mcp/);
+  assert.match(installerScript, /merge-global-mcp/);
+  assert.match(installerScript, /install-user-skills/);
+  assert.match(installerScript, /SkipGlobalMcp/);
+  assert.match(installerScript, /LMMS_INSTALLER_GLOBAL_MCP_PATH/);
+  assert.match(installerScript, /LMMS_INSTALLER_AGENTS_SKILLS_DIR/);
 
-  // Verify .gitignore ignores .mcp.json so local machine paths are never staged.
+  if (process.platform === 'win32') {
+    const parseCheck = await runCommandSafe('powershell.exe', [
+      '-NoProfile',
+      '-Command',
+      `foreach ($f in @('${path.join(repoRoot, 'install-windows.ps1').replace(/'/g, "''")}', '${path.join(repoRoot, 'setup-windows.ps1').replace(/'/g, "''")}')) { $errors = $null; [void][System.Management.Automation.Language.Parser]::ParseFile($f, [ref]$null, [ref]$errors); if ($errors.Count -gt 0) { throw ($errors | Out-String) } }`,
+    ]);
+    assert.equal(parseCheck.exitCode, 0);
+  }
+
+  // Verify .gitignore ignores both .mcp.json and .vscode/mcp.json so local machine paths are never staged.
   const gitignore = await readFile(path.join(repoRoot, '.gitignore'), 'utf8');
   assert.match(gitignore, /^\.mcp\.json$/m);
+  assert.match(gitignore, /^\.vscode\/mcp\.json$/m);
 
   // Verify MCP initialization instructions and get_started reflect V3 and omit deleted pre-V3 tools.
   const ws = await makeScratch(t, 'installer-onboarding-mcp-');

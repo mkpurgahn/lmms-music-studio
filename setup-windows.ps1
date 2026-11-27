@@ -4,6 +4,7 @@ param(
     [string]$SoundfontsDir = "",
     [ValidateSet('core', 'upright-bass', 'meta-piano', 'vsco-extended')][string[]]$Packs = @('core'),
     [switch]$SkipUserSkill,
+    [switch]$SkipGlobalMcp,
     [switch]$SkipSmokeTest
 )
 

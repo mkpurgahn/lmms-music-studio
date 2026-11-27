@@ -5,7 +5,7 @@ description: Use when the user invokes /make-music or asks to make, produce, com
 
 # Make Music (Ear-Directed LMMS Studio)
 
-Turn plain-English moods and listener ear feedback into copyright-verified songs, live WebAudio stem/A-B players, and editable Desktop LMMS projects via `F:\projects\lmms-music-studio` (`mkpurgahn/lmms-music-studio`)—no music theory or DAW terms required.
+Turn plain-English moods and listener ear feedback into copyright-verified songs, live WebAudio stem/A-B players, and editable Desktop LMMS projects via LMMS Music Studio (`mkpurgahn/lmms-music-studio`)—no music theory or DAW terms required.
 
 **Violating the letter of these rules is violating the spirit of these rules.**
 

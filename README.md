@@ -40,8 +40,8 @@ What `install-windows.ps1` does safely and idempotently:
 3. Runs `npm ci` so all runtime, test, and verification scripts are ready.
 4. Creates your workspace folder (`%USERPROFILE%\Music\LMMS Music Studio` by default).
 5. Downloads, verifies (`LICENSE` + `SHA-256`), and compiles the CC0-1.0 `core` SoundFont pack into `%LOCALAPPDATA%\lmms-music-studio\soundfonts`. Repeat runs verify `soundfont-lock.json` hashes in under a second without re-downloading.
-6. Non-destructively merges `mcpServers["lmms-music-studio"]` into `.mcp.json` in the repository root (preserving any other MCP servers you already have configured). `.mcp.json` is gitignored so local machine paths are never committed; see `.mcp.example.json` for a portable template.
-7. Installs the `/make-music` skill (`SKILL.md` and `producer-tool-reference.md`) to `%USERPROFILE%\.copilot\skills\make-music\` (and removes any legacy `%USERPROFILE%\.copilot\skills\lmms-music-studio\` folder from older installs) alongside the project skill in `.github\skills\make-music\`.
+6. Non-destructively merges `lmms-music-studio` into repo `.mcp.json` (GitHub Copilot CLI & Desktop App), repo `.vscode\mcp.json` (VS Code GitHub Copilot), and global `~/.copilot/mcp-config.json` (`%USERPROFILE%\.copilot\mcp-config.json`, skippable with `-SkipGlobalMcp`), preserving any existing servers or inputs. Both `.mcp.json` and `.vscode\mcp.json` are gitignored so local machine paths are never committed; see `.mcp.example.json` and `.vscode\mcp.example.json` for portable templates.
+7. Installs the `/make-music` skill (`SKILL.md` and `producer-tool-reference.md`) to global `~/.copilot/skills/make-music` (`%USERPROFILE%\.copilot\skills\make-music\`) and `~/.agents/skills/make-music` (`%USERPROFILE%\.agents\skills\make-music\`) alongside the tracked repository skill in `.github\skills\make-music\SKILL.md` (and removes any legacy `lmms-music-studio` skill folder).
 8. Runs `node .github\scripts\smoke-server.mjs` and prints your ready summary.
 
 ### Optional Installer Flags
@@ -52,6 +52,7 @@ powershell -ExecutionPolicy Bypass -File .\install-windows.ps1 `
   -SoundfontsDir "D:\Music\SoundFonts" `
   -Packs core,upright-bass,meta-piano `
   -SkipUserSkill `
+  -SkipGlobalMcp `
   -SkipSmokeTest
 ```
 
@@ -74,12 +75,12 @@ Note: Full-song multi-stem renders can take 30 to 120 seconds. Set your MCP clie
 
 ## 3. Connecting Your AI Assistant
 
-Running `.\install-windows.ps1` writes `.mcp.json` in your checkout root using your exact local paths (modeled on `.mcp.example.json`). Here is how to connect popular AI clients on Windows:
+Cloning the repository already includes `.github\skills\make-music\SKILL.md`, and running `.\install-windows.ps1` once wires up `.mcp.json` (Copilot CLI/App), `.vscode\mcp.json` (VS Code Copilot), global `~/.copilot/mcp-config.json`, and global `~/.copilot/skills/make-music` + `~/.agents/skills/make-music` so `/make-music` works across every GitHub Copilot environment. Here is how each AI client connects on Windows:
 
-### GitHub Copilot App & GitHub Copilot CLI
-- After running `.\install-windows.ps1`, the `/make-music` skill (`SKILL.md` + `producer-tool-reference.md`) is installed in `%USERPROFILE%\.copilot\skills\make-music\` and mirrored in `.github\skills\make-music\`.
-- Open the `lmms-music-studio` repository folder in GitHub Copilot App or Copilot CLI (which reads `.mcp.json` automatically), OR simply type `/make-music` (or `"let's make a song"`) from any GitHub Copilot App chat.
-- If you start `/make-music` from a general chat where MCP tools are not attached yet, the skill walks you through the 4 plain-English intake questions right there, automatically coordinates an `lmms-music-studio` branch session in the background, and opens the Studio Player in your Browser Canvas when ready.
+### GitHub Copilot Desktop App, GitHub Copilot CLI, & VS Code GitHub Copilot
+- **Copilot Desktop App & Copilot CLI (any repository):** Running `.\install-windows.ps1` registers `mcpServers["lmms-music-studio"]` globally in `~/.copilot/mcp-config.json` (`%USERPROFILE%\.copilot\mcp-config.json`) as well as in repo `.mcp.json`, and installs `/make-music` (`SKILL.md` + `producer-tool-reference.md`) into both `~/.copilot/skills/make-music` and `~/.agents/skills/make-music`. Type `/make-music` (or `"let's make a song"`) in any Copilot Desktop App chat or Copilot CLI session across any repository.
+- **VS Code GitHub Copilot:** Cloning the repo includes `.github\skills\make-music\SKILL.md`, and `.\install-windows.ps1` writes `.vscode\mcp.json` (`servers["lmms-music-studio"]` with `"type": "stdio"`, modeled on `.vscode\mcp.example.json`). Open the repository folder in VS Code and invoke `/make-music` in Copilot Chat.
+- **Fallback coordinator routing (when `-SkipGlobalMcp` was used):** If you start `/make-music` from a general chat where MCP tools are not attached, the skill walks you through the 4 plain-English intake questions right there, coordinates an `lmms-music-studio` branch session automatically, and opens the Studio Player in Browser Canvas when ready.
 
 ### Claude Desktop
 Open `%APPDATA%\Claude\claude_desktop_config.json` (create it if it does not exist) and merge the `"lmms-music-studio"` entry generated in your repo's `.mcp.json`:
@@ -123,11 +124,10 @@ LMMS_SOUNDFONTS = "C:\\Users\\YOUR_USERNAME\\AppData\\Local\\lmms-music-studio\\
 LMMS_STRICT_COPYRIGHT = "1"
 ```
 
-For project-level skill discovery in Codex, copy `skills\make-music` to `.agents\skills\make-music`.
+Running `.\install-windows.ps1` already installs `/make-music` globally to `~/.agents/skills/make-music` (`%USERPROFILE%\.agents\skills\make-music\`); for project-scoped discovery in another repository, copy `skills\make-music` to `.agents\skills\make-music`.
 
-### VS Code & Cursor
+### Cursor
 - **Cursor:** Copy `.mcp.json` to `.cursor\mcp.json` in your workspace (or merge `mcpServers["lmms-music-studio"]` into `%USERPROFILE%\.cursor\mcp.json`).
-- **VS Code (GitHub Copilot Agent Mode):** Create `.vscode\mcp.json` with a `"servers"` key containing the same `"lmms-music-studio"` command, `args`, and `env` block from `.mcp.json`.
 
 ---
 
@@ -264,7 +264,7 @@ LMMS Music Studio is engineered so you know the exact technical origin of every 
 
 ### Automated Verification Commands
 
-Run these commands from the repository root (`F:\projects\lmms-music-studio` or your clone directory):
+Run these commands from your cloned repository root:
 
 ```powershell
 # Run the full unit and studio integration test suite

@@ -2,3 +2,4 @@ node_modules/
 output/
 .test-scratch/
 .mcp.json
+.vscode/mcp.json

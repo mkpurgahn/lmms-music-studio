@@ -49,6 +49,7 @@
     ".github/skills/",
     "AGENTS.md",
     ".mcp.example.json",
+    ".vscode/mcp.example.json",
     "install-windows.ps1",
     "demo.mjs",
     "test.mjs",

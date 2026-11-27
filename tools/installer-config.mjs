@@ -1,9 +1,11 @@
-// Non-destructive .mcp.json configuration merger, path resolver, and SoundFont lockfile verifier
+// Non-destructive MCP configuration merger (.mcp.json, .vscode/mcp.json, and ~/.copilot/mcp-config.json),
+// user skill installer (~/.copilot/skills + ~/.agents/skills), path resolver, and SoundFont lockfile verifier
 // used by install-windows.ps1 and unit tests. Uses only Node built-ins and zero-dependency local helpers
 // so preflight checks can run before `npm ci` on a fresh checkout.
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, realpathSync } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, rm, stat } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -69,6 +71,100 @@ export function resolveInstallerPaths({
     workspace: resolveWorkspaceDir(effectiveEnv, homeOpts),
     soundfontsDir: resolveSoundfontsDir(effectiveEnv, homeOpts),
     lmmsExecutable: resolveLmmsExecutable(effectiveEnv, { platform }),
+  };
+}
+
+function resolveEffectiveHome({ env = process.env, homedir } = {}) {
+  if (typeof homedir === 'string' && homedir.trim().length > 0) {
+    return path.resolve(homedir.trim());
+  }
+  const candidate = env.USERPROFILE || env.HOME || os.homedir();
+  return path.resolve(candidate);
+}
+
+export function resolveGlobalMcpConfigPath({
+  mcpPath = '',
+  env = process.env,
+  homedir,
+} = {}) {
+  if (typeof mcpPath === 'string' && mcpPath.trim().length > 0) {
+    return path.resolve(mcpPath.trim());
+  }
+  if (typeof env.LMMS_INSTALLER_GLOBAL_MCP_PATH === 'string' && env.LMMS_INSTALLER_GLOBAL_MCP_PATH.trim().length > 0) {
+    return path.resolve(env.LMMS_INSTALLER_GLOBAL_MCP_PATH.trim());
+  }
+  return path.join(resolveEffectiveHome({ env, homedir }), '.copilot', 'mcp-config.json');
+}
+
+export function resolveUserSkillRoots({
+  copilotSkillsDir = '',
+  agentsSkillsDir = '',
+  env = process.env,
+  homedir,
+} = {}) {
+  const home = resolveEffectiveHome({ env, homedir });
+  const copilotOverride = typeof copilotSkillsDir === 'string' && copilotSkillsDir.trim().length > 0
+    ? copilotSkillsDir.trim()
+    : (typeof env.LMMS_INSTALLER_COPILOT_SKILLS_DIR === 'string' ? env.LMMS_INSTALLER_COPILOT_SKILLS_DIR.trim() : '');
+  const agentsOverride = typeof agentsSkillsDir === 'string' && agentsSkillsDir.trim().length > 0
+    ? agentsSkillsDir.trim()
+    : (typeof env.LMMS_INSTALLER_AGENTS_SKILLS_DIR === 'string' ? env.LMMS_INSTALLER_AGENTS_SKILLS_DIR.trim() : '');
+
+  return {
+    copilotSkillsRoot: copilotOverride ? path.resolve(copilotOverride) : path.join(home, '.copilot', 'skills'),
+    agentsSkillsRoot: agentsOverride ? path.resolve(agentsOverride) : path.join(home, '.agents', 'skills'),
+  };
+}
+
+export async function installUserSkills({
+  repoRoot = REPO_ROOT,
+  copilotSkillsDir = '',
+  agentsSkillsDir = '',
+  env = process.env,
+  homedir,
+} = {}) {
+  const sourceSkillDir = path.join(path.resolve(repoRoot), 'skills', 'make-music');
+  if (!existsSync(sourceSkillDir)) {
+    throw new Error(`Skill source directory missing: ${sourceSkillDir}`);
+  }
+  for (const requiredFile of ['SKILL.md', 'producer-tool-reference.md']) {
+    const candidate = path.join(sourceSkillDir, requiredFile);
+    if (!existsSync(candidate)) {
+      throw new Error(`Required skill file missing: ${candidate}`);
+    }
+  }
+
+  const { copilotSkillsRoot, agentsSkillsRoot } = resolveUserSkillRoots({
+    copilotSkillsDir,
+    agentsSkillsDir,
+    env,
+    homedir,
+  });
+  const entries = await readdir(sourceSkillDir);
+  const installedDirs = [];
+  const removedLegacyDirs = [];
+
+  for (const targetSkillsRoot of [copilotSkillsRoot, agentsSkillsRoot]) {
+    const targetSkillDir = path.join(targetSkillsRoot, 'make-music');
+    await mkdir(targetSkillDir, { recursive: true });
+    for (const entry of entries) {
+      await cp(path.join(sourceSkillDir, entry), path.join(targetSkillDir, entry), {
+        recursive: true,
+        force: true,
+      });
+    }
+    const legacyDir = path.join(targetSkillsRoot, 'lmms-music-studio');
+    if (existsSync(legacyDir)) {
+      await rm(legacyDir, { recursive: true, force: true });
+      removedLegacyDirs.push(legacyDir);
+    }
+    installedDirs.push(targetSkillDir);
+  }
+
+  return {
+    copilotSkillDir: installedDirs[0],
+    agentsSkillDir: installedDirs[1],
+    removedLegacyDirs,
   };
 }
 
@@ -167,26 +263,18 @@ export async function verifyInstalledPacks({
   };
 }
 
-export function mergeMcpConfig(existingConfig, {
+function buildStudioServerPaths({
   repoRoot = REPO_ROOT,
   workspace,
   soundfontsDir,
-  strictCopyright = '1',
   platform = process.platform,
-} = {}) {
-  if (existingConfig !== null && existingConfig !== undefined && !isPlainObject(existingConfig)) {
-    throw new Error('Existing .mcp.json root value must be a JSON object');
-  }
+  callerName = 'mergeMcpConfig',
+}) {
   if (!workspace || typeof workspace !== 'string') {
-    throw new Error('mergeMcpConfig requires a resolved workspace path');
+    throw new Error(`${callerName} requires a resolved workspace path`);
   }
   if (!soundfontsDir || typeof soundfontsDir !== 'string') {
-    throw new Error('mergeMcpConfig requires a resolved soundfontsDir path');
-  }
-
-  const base = existingConfig ? { ...existingConfig } : {};
-  if (base.mcpServers !== undefined && !isPlainObject(base.mcpServers)) {
-    throw new Error('Existing .mcp.json "mcpServers" property must be a JSON object');
+    throw new Error(`${callerName} requires a resolved soundfontsDir path`);
   }
 
   const winMode = platform === 'win32' || isWindowsStylePath(repoRoot);
@@ -196,6 +284,32 @@ export function mergeMcpConfig(existingConfig, {
     : path.join(normalizedRoot, 'server.mjs');
   const normalizedWorkspace = normalizeTargetPath(workspace, winMode ? 'win32' : platform);
   const normalizedSoundfonts = normalizeTargetPath(soundfontsDir, winMode ? 'win32' : platform);
+  return { serverScript, normalizedWorkspace, normalizedSoundfonts };
+}
+
+export function mergeMcpConfig(existingConfig, {
+  repoRoot = REPO_ROOT,
+  workspace,
+  soundfontsDir,
+  strictCopyright = '1',
+  platform = process.platform,
+} = {}) {
+  if (existingConfig !== null && existingConfig !== undefined && !isPlainObject(existingConfig)) {
+    throw new Error('Existing MCP config root value must be a JSON object');
+  }
+
+  const base = existingConfig ? { ...existingConfig } : {};
+  if (base.mcpServers !== undefined && !isPlainObject(base.mcpServers)) {
+    throw new Error('Existing MCP config "mcpServers" property must be a JSON object');
+  }
+
+  const { serverScript, normalizedWorkspace, normalizedSoundfonts } = buildStudioServerPaths({
+    repoRoot,
+    workspace,
+    soundfontsDir,
+    platform,
+    callerName: 'mergeMcpConfig',
+  });
 
   const existingServers = base.mcpServers ?? {};
   const previousStudio = isPlainObject(existingServers['lmms-music-studio'])
@@ -224,8 +338,67 @@ export function mergeMcpConfig(existingConfig, {
   };
 }
 
-export async function upsertMcpConfigFile(mcpConfigPath, options = {}) {
-  const resolvedPath = path.resolve(mcpConfigPath);
+export function mergeVscodeMcpConfig(existingConfig, {
+  repoRoot = REPO_ROOT,
+  workspace,
+  soundfontsDir,
+  strictCopyright = '1',
+  platform = process.platform,
+} = {}) {
+  if (existingConfig !== null && existingConfig !== undefined && !isPlainObject(existingConfig)) {
+    throw new Error('Existing .vscode/mcp.json root value must be a JSON object');
+  }
+
+  const base = existingConfig ? { ...existingConfig } : {};
+  if (base.servers !== undefined && !isPlainObject(base.servers)) {
+    throw new Error('Existing .vscode/mcp.json "servers" property must be a JSON object');
+  }
+
+  const { serverScript, normalizedWorkspace, normalizedSoundfonts } = buildStudioServerPaths({
+    repoRoot,
+    workspace,
+    soundfontsDir,
+    platform,
+    callerName: 'mergeVscodeMcpConfig',
+  });
+
+  const existingServers = base.servers ?? {};
+  const previousStudio = isPlainObject(existingServers['lmms-music-studio'])
+    ? existingServers['lmms-music-studio']
+    : {};
+  const previousEnv = isPlainObject(previousStudio.env) ? previousStudio.env : {};
+  const {
+    type: _ignoredType,
+    command: _ignoredCommand,
+    args: _ignoredArgs,
+    env: _ignoredEnv,
+    ...restPreviousStudio
+  } = previousStudio;
+
+  const studioEntry = {
+    type: 'stdio',
+    command: 'node',
+    args: [serverScript],
+    env: {
+      ...previousEnv,
+      LMMS_WORKSPACE: normalizedWorkspace,
+      LMMS_SOUNDFONTS: normalizedSoundfonts,
+      LMMS_STRICT_COPYRIGHT: String(strictCopyright),
+    },
+    ...restPreviousStudio,
+  };
+
+  return {
+    ...base,
+    servers: {
+      ...existingServers,
+      'lmms-music-studio': studioEntry,
+    },
+  };
+}
+
+async function upsertJsonConfigFile(configPath, mergeFn, options = {}) {
+  const resolvedPath = path.resolve(configPath);
   const existed = existsSync(resolvedPath);
   let rawExisting = null;
   let parsedExisting = null;
@@ -236,33 +409,40 @@ export async function upsertMcpConfigFile(mcpConfigPath, options = {}) {
     if (withoutBom.trim().length > 0) {
       try {
         parsedExisting = JSON.parse(withoutBom);
-      } catch (error) {
+      } catch {
         throw new Error(
-          `Cannot update ${resolvedPath}: existing .mcp.json is not valid JSON (${error.message}). Fix or back up the file and re-run install-windows.ps1.`,
+          `Cannot update ${resolvedPath}: existing configuration file is not valid JSON. Fix or back up the file and re-run install-windows.ps1.`,
         );
       }
     }
   }
 
-  const merged = mergeMcpConfig(parsedExisting, options);
+  const merged = mergeFn(parsedExisting, options);
   const serialized = JSON.stringify(merged, null, 2) + '\n';
 
   if (existed && rawExisting === serialized) {
     return {
-      path: resolvedPath,
       created: false,
       changed: false,
-      config: merged,
+      path: resolvedPath,
     };
   }
 
+  await mkdir(path.dirname(resolvedPath), { recursive: true });
   await writeFileAtomic(resolvedPath, serialized, { overwrite: true });
   return {
-    path: resolvedPath,
     created: !existed,
     changed: true,
-    config: merged,
+    path: resolvedPath,
   };
+}
+
+export async function upsertMcpConfigFile(mcpConfigPath, options = {}) {
+  return upsertJsonConfigFile(mcpConfigPath, mergeMcpConfig, options);
+}
+
+export async function upsertVscodeMcpConfigFile(vscodeMcpPath, options = {}) {
+  return upsertJsonConfigFile(vscodeMcpPath, mergeVscodeMcpConfig, options);
 }
 
 function isMainModule(metaUrl, argv1 = process.argv[1]) {
@@ -280,6 +460,8 @@ if (isMainModule(import.meta.url)) {
       mode: { type: 'string' },
       'repo-root': { type: 'string' },
       'mcp-path': { type: 'string' },
+      'copilot-skills-dir': { type: 'string', default: '' },
+      'agents-skills-dir': { type: 'string', default: '' },
       workspace: { type: 'string', default: '' },
       soundfonts: { type: 'string', default: '' },
       packs: { type: 'string', default: 'core' },
@@ -322,13 +504,48 @@ if (isMainModule(import.meta.url)) {
       strictCopyright: '1',
     });
     process.stdout.write(JSON.stringify({
-      path: result.path,
       created: result.created,
       changed: result.changed,
+      path: result.path,
+    }) + '\n');
+  } else if (values.mode === 'merge-vscode-mcp') {
+    const vscodeMcpPath = path.resolve(values['mcp-path'] || path.join(repoRoot, '.vscode', 'mcp.json'));
+    const result = await upsertVscodeMcpConfigFile(vscodeMcpPath, {
+      repoRoot,
       workspace: resolved.workspace,
       soundfontsDir: resolved.soundfontsDir,
+      strictCopyright: '1',
+    });
+    process.stdout.write(JSON.stringify({
+      created: result.created,
+      changed: result.changed,
+      path: result.path,
     }) + '\n');
+  } else if (values.mode === 'merge-global-mcp') {
+    const globalMcpPath = resolveGlobalMcpConfigPath({
+      mcpPath: values['mcp-path'],
+      env: process.env,
+    });
+    const result = await upsertMcpConfigFile(globalMcpPath, {
+      repoRoot,
+      workspace: resolved.workspace,
+      soundfontsDir: resolved.soundfontsDir,
+      strictCopyright: '1',
+    });
+    process.stdout.write(JSON.stringify({
+      created: result.created,
+      changed: result.changed,
+      path: result.path,
+    }) + '\n');
+  } else if (values.mode === 'install-user-skills') {
+    const skillResult = await installUserSkills({
+      repoRoot,
+      copilotSkillsDir: values['copilot-skills-dir'],
+      agentsSkillsDir: values['agents-skills-dir'],
+      env: process.env,
+    });
+    process.stdout.write(JSON.stringify(skillResult) + '\n');
   } else {
-    throw new Error('Expected --mode preflight or --mode merge-mcp');
+    throw new Error('Expected --mode preflight, merge-mcp, merge-vscode-mcp, merge-global-mcp, or install-user-skills');
   }
 }

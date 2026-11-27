@@ -1,12 +1,14 @@
 # Turnkey, idempotent, non-destructive Windows installer for LMMS Music Studio V3.
 # Verifies prerequisites with plain-English remediation, installs stock LMMS 1.2.2 and FFmpeg via WinGet when missing,
-# installs npm dependencies, compiles/verifies CC0-1.0 SoundFont packs, merges .mcp.json non-destructively,
-# installs the Copilot skill, and runs the MCP server smoke test.
+# installs npm dependencies, compiles/verifies CC0-1.0 SoundFont packs, merges .mcp.json, .vscode\mcp.json, and
+# ~/.copilot/mcp-config.json non-destructively, installs user skills (~/.copilot/skills + ~/.agents/skills),
+# and runs the MCP server smoke test.
 param(
     [string]$Workspace = "",
     [string]$SoundfontsDir = "",
     [ValidateSet('core', 'upright-bass', 'meta-piano', 'vsco-extended')][string[]]$Packs = @('core'),
     [switch]$SkipUserSkill,
+    [switch]$SkipGlobalMcp,
     [switch]$SkipSmokeTest
 )
 
@@ -253,7 +255,7 @@ try {
     Write-Output "[setup] Verifying CC0-1.0 SoundFont pack(s) ($packCsv)..."
     & $libScript -Pack $Packs -Destination $resolvedSoundfonts
 
-    # 8. Non-destructive .mcp.json merge
+    # 8. Non-destructive MCP configuration merges (.mcp.json, .vscode\mcp.json, and global ~/.copilot/mcp-config.json)
     $mcpJsonPath = Join-Path $repoRoot '.mcp.json'
     $mcpResult = Invoke-NodeJson -Arguments @(
         $installerHelper,
@@ -264,12 +266,48 @@ try {
         '--soundfonts', $resolvedSoundfonts
     )
     $mcpState = if ($mcpResult.created) { 'created' } elseif ($mcpResult.changed) { 'updated' } else { 'unchanged (already up to date)' }
-    Write-Output "[setup] MCP configuration ($mcpState): $($mcpResult.path)"
+    Write-Output "[setup] Repo MCP configuration ($mcpState): $($mcpResult.path)"
 
-    # 9. Copilot Skill installation (project skill is tracked in .github\skills\make-music\)
+    $vscodeMcpJsonPath = Join-Path $repoRoot '.vscode\mcp.json'
+    $vscodeMcpResult = Invoke-NodeJson -Arguments @(
+        $installerHelper,
+        '--mode', 'merge-vscode-mcp',
+        '--mcp-path', $vscodeMcpJsonPath,
+        '--repo-root', $repoRoot,
+        '--workspace', $resolvedWorkspace,
+        '--soundfonts', $resolvedSoundfonts
+    )
+    $vscodeMcpState = if ($vscodeMcpResult.created) { 'created' } elseif ($vscodeMcpResult.changed) { 'updated' } else { 'unchanged (already up to date)' }
+    Write-Output "[setup] VS Code MCP configuration ($vscodeMcpState): $($vscodeMcpResult.path)"
+
+    $userHome = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
+    $globalMcpSummary = 'skipped (-SkipGlobalMcp)'
+    if (-not $SkipGlobalMcp) {
+        $globalMcpPath = if ($env:LMMS_INSTALLER_GLOBAL_MCP_PATH) {
+            $env:LMMS_INSTALLER_GLOBAL_MCP_PATH
+        } else {
+            Join-Path $userHome '.copilot\mcp-config.json'
+        }
+        $globalMcpResult = Invoke-NodeJson -Arguments @(
+            $installerHelper,
+            '--mode', 'merge-global-mcp',
+            '--mcp-path', $globalMcpPath,
+            '--repo-root', $repoRoot,
+            '--workspace', $resolvedWorkspace,
+            '--soundfonts', $resolvedSoundfonts
+        )
+        $globalMcpState = if ($globalMcpResult.created) { 'created' } elseif ($globalMcpResult.changed) { 'updated' } else { 'unchanged (already up to date)' }
+        $globalMcpSummary = [string]$globalMcpResult.path
+        Write-Output "[setup] Global Copilot MCP configuration ($globalMcpState): $($globalMcpResult.path)"
+    } else {
+        Write-Output '[setup] Skipped global Copilot MCP configuration (-SkipGlobalMcp).'
+    }
+
+    # 9. Copilot & cross-agent skill installation (project skill is tracked in .github\skills\make-music\)
     $sourceSkillDir = Join-Path $repoRoot 'skills\make-music'
     $projectSkillFile = Join-Path $repoRoot '.github\skills\make-music\SKILL.md'
     $userSkillSummary = 'skipped (-SkipUserSkill)'
+    $agentsSkillSummary = 'skipped (-SkipUserSkill)'
 
     if (-not $SkipUserSkill) {
         if (-not (Test-Path -LiteralPath $sourceSkillDir)) {
@@ -281,26 +319,34 @@ try {
                 Fail-Step "Required skill file missing: $candidateSkillFile"
             }
         }
-        $targetSkillsRoot = if ($env:LMMS_INSTALLER_COPILOT_SKILLS_DIR) {
+        $copilotSkillsRoot = if ($env:LMMS_INSTALLER_COPILOT_SKILLS_DIR) {
             $env:LMMS_INSTALLER_COPILOT_SKILLS_DIR
         } else {
-            $userHome = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
             Join-Path $userHome '.copilot\skills'
         }
-        $userSkillDir = Join-Path $targetSkillsRoot 'make-music'
-        New-Item -ItemType Directory -Force -Path $userSkillDir | Out-Null
-        Get-ChildItem -LiteralPath $sourceSkillDir -Force | ForEach-Object {
-            Copy-Item -LiteralPath $_.FullName -Destination $userSkillDir -Recurse -Force
+        $agentsSkillsRoot = if ($env:LMMS_INSTALLER_AGENTS_SKILLS_DIR) {
+            $env:LMMS_INSTALLER_AGENTS_SKILLS_DIR
+        } else {
+            Join-Path $userHome '.agents\skills'
         }
-        $legacySkillDir = Join-Path $targetSkillsRoot 'lmms-music-studio'
-        if (Test-Path -LiteralPath $legacySkillDir) {
-            Remove-Item -LiteralPath $legacySkillDir -Recurse -Force
-            Write-Output "[setup] Removed legacy Copilot skill directory: $legacySkillDir"
+        $skillResult = Invoke-NodeJson -Arguments @(
+            $installerHelper,
+            '--mode', 'install-user-skills',
+            '--repo-root', $repoRoot,
+            '--copilot-skills-dir', $copilotSkillsRoot,
+            '--agents-skills-dir', $agentsSkillsRoot
+        )
+        foreach ($legacyRemoved in @($skillResult.removedLegacyDirs)) {
+            if ($legacyRemoved) {
+                Write-Output "[setup] Removed legacy skill directory: $legacyRemoved"
+            }
         }
-        $userSkillSummary = Join-Path $userSkillDir 'SKILL.md'
-        Write-Output "[setup] User Copilot skill installed: $userSkillDir (SKILL.md + producer-tool-reference.md)"
+        $userSkillSummary = Join-Path ([string]$skillResult.copilotSkillDir) 'SKILL.md'
+        $agentsSkillSummary = Join-Path ([string]$skillResult.agentsSkillDir) 'SKILL.md'
+        Write-Output "[setup] User Copilot skill installed: $($skillResult.copilotSkillDir) (SKILL.md + producer-tool-reference.md)"
+        Write-Output "[setup] Cross-agent skill installed: $($skillResult.agentsSkillDir) (SKILL.md + producer-tool-reference.md)"
     } else {
-        Write-Output '[setup] Skipped user Copilot skill installation (-SkipUserSkill).'
+        Write-Output '[setup] Skipped user skill installation (-SkipUserSkill).'
     }
 
     # 10. Final MCP Server Smoke Check
@@ -321,12 +367,15 @@ try {
     Write-Output "FFmpeg          : $ffmpegResolved"
     Write-Output "Workspace       : $resolvedWorkspace"
     Write-Output "SoundFonts      : $resolvedSoundfonts"
-    Write-Output "MCP Config      : $($mcpResult.path)"
+    Write-Output "Repo MCP Config : $($mcpResult.path)"
+    Write-Output "VS Code MCP     : $($vscodeMcpResult.path)"
+    Write-Output "Global MCP      : $globalMcpSummary"
     Write-Output "Project Skill   : $projectSkillFile"
-    Write-Output "User Skill      : $userSkillSummary"
+    Write-Output "Copilot Skill   : $userSkillSummary"
+    Write-Output "Agents Skill    : $agentsSkillSummary"
     Write-Output ''
     Write-Output 'Next steps:'
-    Write-Output "  1. Open GitHub Copilot (or open $repoRoot in Claude Code, VS Code, or Cursor, or copy .mcp.json into your AI client config)."
+    Write-Output "  1. Open GitHub Copilot Desktop App, GitHub Copilot CLI (in any repository), or VS Code ($repoRoot)."
     Write-Output "  2. Type /make-music (or 'let's make a song') to pick your vibe in plain English and open the Studio Player."
 } finally {
     Pop-Location

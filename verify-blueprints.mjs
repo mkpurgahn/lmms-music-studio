@@ -2,19 +2,20 @@
 // Every blueprint is created at two tempos and rendered. The checks are measurements, not listening.
 // Run: node verify-blueprints.mjs
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, mkdtemp, rm, rmdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
-const workspace = await mkdtemp(path.join(tmpdir(), 'lmms-blueprints-check-'));
+const scratchRoot = fileURLToPath(new URL('./.test-scratch', import.meta.url));
+await mkdir(scratchRoot, { recursive: true });
+const workspace = await mkdtemp(path.join(scratchRoot, 'lmms-blueprints-check-'));
 console.log(workspace);
 const client = new Client({ name: 'lmms-blueprints-check', version: '1' });
 await client.connect(new StdioClientTransport({
   command: process.execPath, args: [fileURLToPath(new URL('./server.mjs', import.meta.url))],
-  env: { ...process.env, LMMS_WORKSPACE: workspace },
+  env: { ...process.env, LMMS_WORKSPACE: workspace, LMMS_NO_GUI_LAUNCH: '1' },
 }));
 async function raw(name, args) {
   return client.callTool({ name, arguments: args }, undefined, { timeout: 600000 });
@@ -52,7 +53,17 @@ try {
   assert.equal(blueprints.length, 9);
   assert.ok(blueprints.every(b => b.sections.length && b.tracks.length));
   await fails('create_from_blueprint', { blueprint: 'overworld', output: 'x.mmp', lengthSeconds: 30, lengthBars: 8 }, /not both/);
-  step('list_blueprints returns nine plans');
+  await fails('create_from_blueprint', { blueprint: 'overworld', output: 'no-motif.mmp', lengthBars: 8, progression: 'I V vi IV' }, /caller-supplied motif/i);
+  await fails('create_from_blueprint', { blueprint: 'overworld', output: 'no-prog.mmp', lengthBars: 8, motif: '1:2 3:2 5:4 r:8' }, /caller-supplied progression/i);
+  step('list_blueprints returns nine plans and enforces caller-supplied motif and progression in strict mode');
+
+  const callerSpecFor = b => {
+    if (b.id === 'victory') return { motif: '5,:2 1:2 3:4 5:4 3:2 5:2', progression: 'I IV' };
+    if (b.id === 'dungeon') return { motif: '1:8 2:4 1:4 r:16 5,:4 6,:4 5,:8 r:16', progression: 'i i II i' };
+    if (b.key.includes('phrygian')) return { motif: '1:2 2:2 1:4 5:4 4:2 2:2 1:4 r:12', progression: 'i II i vii' };
+    if (b.key.includes('minor')) return { motif: '1:2 3:2 5:4 4:2 3:2 2:4 1:4 r:12', progression: 'i VI III VII' };
+    return { motif: '1:2 3:2 5:4 6:2 5:2 3:4 2:4 1:4 r:8', progression: 'I V vi IV' };
+  };
 
   // BLUEPRINTS=town,boss limits the run to those blueprints while you work on them.
   const only = process.env.BLUEPRINTS?.split(',');
@@ -61,10 +72,17 @@ try {
     for (const [index, bpm] of tempos.entries()) {
       const own = index === 1 && b.kind === 'loop';
       const output = `${b.id}-${bpm}.mmp`;
+      const baseCaller = callerSpecFor(b);
       const created = await call('create_from_blueprint', {
         blueprint: b.id, output, bpm, lengthSeconds: b.kind === 'stinger' ? 8 : 45,
         sounds: index === 1 ? 'suggested' : 'default',
-        ...(own ? { motif: 'E5:2 G5:1 F#5:1 E5:2 B4:2 C5:4 r:4', key: 'E', progression: b.key.includes('major') ? 'E C#m A B' : undefined } : {}),
+        ...(own
+          ? {
+            motif: 'E5:2 G5:1 F#5:1 E5:2 B4:2 C5:4 r:4',
+            key: 'E',
+            progression: b.key.includes('major') ? 'E C#m A B' : (b.key.includes('phrygian') ? 'Em F Em Dm' : 'Em C G D'),
+          }
+          : baseCaller),
       });
       assert.equal(created.lengthSeconds, Number((created.lengthBars * 240 / bpm).toFixed(4)));
       assert.ok(created.tracks.every(t => t.role), 'every track has a role');
@@ -111,5 +129,7 @@ try {
   console.log(`lint_arrangement: no errors, ${lintWarnings} warnings in total`);
   console.log('All blueprint checks passed.');
 } finally {
-  await client.close();
+  await client.close().catch(() => {});
+  await rm(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 }).catch(() => {});
+  await rmdir(scratchRoot).catch(() => {});
 }

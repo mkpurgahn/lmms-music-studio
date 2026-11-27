@@ -121,18 +121,20 @@ test('native sf2player C4 pitch, Bank 128 drums, pure-synth drums, silent-SF2 gu
     { bank: 0, patch: 0, name: 'Concert C4 Probe', isDrumBank: false },
     { bank: 128, patch: 0, name: 'Fixture GM Drums', isDrumBank: true },
   ]);
+  const singleSf2Alias = await call('list_sf2_presets', { soundfont: 'fixture-bank.sf2' });
+  assert.equal(singleSf2Alias.count, 1);
 
   const pianoSf2 = hasCorePack ? 'upright-piano-kw.sf2' : 'fixture-bank.sf2';
   const drumSf2 = hasCorePack ? 'virtuosity-drums.sf2' : 'fixture-bank.sf2';
 
-  // 2. Concert C4 fundamental check on sf2player (MIDI 60 -> ~261.63 Hz).
+  // 2. Concert C4 fundamental check on sf2player (MIDI 60 -> ~261.63 Hz, exercising soundfont alias).
   await call('create_project', {
     output: 'piano-c4.mmp',
     bpm: 120,
     tracks: [{
       name: 'Piano',
       voice: 'sf2',
-      sf2: pianoSf2,
+      soundfont: pianoSf2,
       bank: 0,
       patch: 0,
       role: 'harmony',

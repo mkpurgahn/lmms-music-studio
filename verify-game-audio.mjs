@@ -1,21 +1,22 @@
 // End-to-end check of the game-audio tools through a real stdio connection and the installed LMMS.
 // Run: node verify-game-audio.mjs
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, rmdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { decodeWav } from './audio.mjs';
 
-const workspace = await mkdtemp(path.join(tmpdir(), 'lmms-game-audio-check-'));
+const scratchRoot = fileURLToPath(new URL('./.test-scratch', import.meta.url));
+await mkdir(scratchRoot, { recursive: true });
+const workspace = await mkdtemp(path.join(scratchRoot, 'lmms-game-audio-check-'));
 console.log(workspace);
 const client = new Client({ name: 'lmms-game-audio-check', version: '1' });
 await client.connect(new StdioClientTransport({
   command: process.execPath, args: [fileURLToPath(new URL('./server.mjs', import.meta.url))],
-  env: { ...process.env, LMMS_WORKSPACE: workspace },
+  env: { ...process.env, LMMS_WORKSPACE: workspace, LMMS_NO_GUI_LAUNCH: '1' },
 }));
 async function raw(name, args) {
   return client.callTool({ name, arguments: args }, undefined, { timeout: 600000 });
@@ -37,50 +38,60 @@ try {
   for (const name of ['analyze_audio', 'apply_edits', 'export_game_audio', 'list_samples', 'build_sound_catalogue', 'add_track', 'copy_bars']) assert.ok(tools.includes(name), name);
   step(`${tools.length} tools listed`);
 
-  // 1. High-level composing input, stock samples, a preset voice and a pinned song length.
+  // 1. High-level composing input, pure-synth drums, a preset voice, pinned song length, and strict stock-sample gate.
+  await fails('create_project', { output: 'blocked-stock.mmp', bpm: 120, tracks: [
+    { name: 'Kick', voice: 'sample', factorySample: 'drums/kick01.ogg', volume: 50, patterns: [{ name: 'Beat', bar: 0, bars: 1, steps: { grid: 'X---' } }] },
+  ] }, /strict copyright mode/i);
+  assert.ok(!existsSync(path.join(workspace, 'blocked-stock.mmp')));
+
+  await fails('create_project', { output: 'blocked-preset.mmp', bpm: 120, tracks: [
+    { name: 'Lead', voice: 'preset', preset: 'TripleOscillator/PowerStrings.xpf', volume: 20, patterns: [{ name: 'Tune', bar: 0, bars: 1, notes: [{ tick: 0, midi: 69, length: 96, velocity: 90 }] }] },
+  ] }, /strict copyright/i);
+  assert.ok(!existsSync(path.join(workspace, 'blocked-preset.mmp')));
+
   const song = await call('create_project', { output: 'song.mmp', bpm: 120, lengthBars: 8, tracks: [
-    { name: 'Kick', voice: 'sample', factorySample: 'drums/kick01.ogg', volume: 50, patterns: [{ name: 'Beat', bar: 0, bars: 6, steps: { grid: 'X---x---X-x-x---' } }] },
-    { name: 'Snare', voice: 'sample', factorySample: 'drums/snare01.ogg', volume: 40, patterns: [{ name: 'Beat', bar: 0, bars: 6, steps: { grid: '----X-------X--g' } }] },
+    { name: 'Kick', voice: 'kick', role: 'drums', volume: 70, patterns: [{ name: 'Beat', bar: 0, bars: 6, steps: { grid: 'X---x---X-x-x---' } }] },
+    { name: 'Snare', voice: 'snare', role: 'drums', volume: 58, patterns: [{ name: 'Beat', bar: 0, bars: 6, steps: { grid: '----X-------X--g' } }] },
     { name: 'Bass', voice: 'bass', volume: 80, patterns: [{ name: 'Line', bar: 0, bars: 6, chords: { progression: 'Dm Bb F C', style: 'bass', figure: 'octaves' } }] },
     { name: 'Keys', voice: 'pad', volume: 45, patterns: [{ name: 'Chords', bar: 0, bars: 6, chords: { progression: 'Dm Bb F C' } }] },
-    { name: 'Lead', voice: 'preset', preset: 'TripleOscillator/PowerStrings.xpf', volume: 9, patterns: [{ name: 'Tune', bar: 0, bars: 4, melody: { line: 'D5:3 F5:3 A5:6 G5:2 F5:2 | G5:3 F5:3 D5:6 r:4' } }] },
+    { name: 'Lead', voice: 'preset', preset: 'TripleOscillator/CryingPads.xpf', volume: 22, patterns: [{ name: 'Tune', bar: 0, bars: 4, melody: { line: 'D5:3 F5:3 A5:6 G5:2 F5:2 | G5:3 F5:3 D5:6 r:4' } }] },
   ] });
   assert.equal(song.lengthBars, 8);
   assert.equal(song.lengthSeconds, 16);
   assert.equal(song.lengthPinned, true);
   assert.equal(song.presets.Lead.corrected, true);
-  assert.equal(song.presets.Lead.presetPitchOffsetSemitones, -9);
+  assert.equal(song.presets.Lead.presetPitchOffsetSemitones, -12);
   const bass = await call('read_pattern', { project: 'song.mmp', trackName: 'Bass', bar: 0 });
   assert.deepEqual(bass.notes.slice(0, 2).map(n => n.midi), [38, 50]);
   assert.equal(bass.notes.length, 48);
   const keys = await call('read_pattern', { project: 'song.mmp', trackName: 'Keys', bar: 0 });
   assert.ok(keys.notes.every(n => n.midi >= 53 && n.midi <= 72), 'voice-led chords stay in one register');
-  step('create_project accepts step grids, melody lines, chord progressions, stock samples and presets');
+  step('create_project accepts step grids, melody lines, chord progressions, pure-synth drums and presets while blocking stock samples');
 
   const cut = await call('render_mix', { project: 'song.mmp', output: 'cut.wav' });
   assert.equal(cut.durationSeconds, 16);
   assert.equal(cut.fullScaleSamples, 0);
   step('pinned length renders all 8 bars although bars 7 and 8 are empty');
 
-  // 2. Preset tuning: a written A4 sounds as A4 after concert correction, and 9 semitones low without it.
-  const probe = { bpm: 120, tracks: [{ name: 'P', voice: 'preset', preset: 'TripleOscillator/PowerStrings.xpf', volume: 20,
+  // 2. Preset tuning: a written A4 sounds as A4 after concert correction, and 12 semitones low without it.
+  const probe = { bpm: 120, tracks: [{ name: 'P', voice: 'preset', preset: 'TripleOscillator/CryingPads.xpf', volume: 25,
     patterns: [{ name: 'A', bar: 0, bars: 1, notes: [{ tick: 0, midi: 69, length: 180, velocity: 90 }] }] }] };
   await call('create_project', { ...probe, output: 'concert.mmp' });
   await call('create_project', { ...probe, output: 'as-saved.mmp', tuning: 'preset' });
   await call('render_mix', { project: 'concert.mmp', output: 'concert.wav' });
   await call('render_mix', { project: 'as-saved.mmp', output: 'as-saved.wav' });
   near((await call('analyze_audio', { audio: 'concert.wav', pitch: true })).pitch.midi, 69, 0.3, 'concert tuning');
-  near((await call('analyze_audio', { audio: 'as-saved.wav', pitch: true })).pitch.midi, 60, 0.3, 'preset tuning');
+  near((await call('analyze_audio', { audio: 'as-saved.wav', pitch: true })).pitch.midi, 57, 0.3, 'preset tuning');
   step('apply_preset corrects preset transposition and reports it');
 
-  // 3. Older preset formats and ZynAddSubFX patches load and make sound.
+  // 3. Older preset formats and ZynAddSubFX patches load and make sound; stock sample previews fail closed in strict mode.
   for (const [index, preset] of ['TripleOscillator/TranceLead.xpf', 'Organic/pad_rich.xpf', 'BitInvader/bell.xpf', 'ZynAddSubFX/Pads/0001-Sine Pad.xiz'].entries()) {
     const preview = await call('preview_sound', { preset, output: `preview-${index}.wav`, midi: 60 });
     assert.ok(preview.peakDbfs > -60, preset + ' is audible');
   }
-  const kickPreview = await call('preview_sound', { factorySample: 'drums/kick01.ogg', output: 'preview-kick.wav' });
-  assert.ok(kickPreview.peakDbfs > -30);
-  step('old-format presets, ZynAddSubFX patches and stock samples audition');
+  await fails('preview_sound', { factorySample: 'drums/kick01.ogg', output: 'preview-kick.wav' }, /strict copyright mode/i);
+  assert.ok(!existsSync(path.join(workspace, 'preview-kick.wav')));
+  step('old-format presets and ZynAddSubFX patches audition while stock samples stay blocked');
 
   // 4. Batch edits: one file for a whole pass, and nothing written when a step fails.
   const before = (await readdir(workspace)).filter(name => name.endsWith('.mmp')).length;
@@ -208,9 +219,17 @@ try {
   }
   step('export_game_audio writes loop, intro, layers, stinger and manifest');
 
-  // 10. Sound discovery.
+  // 10. Sound discovery in V3 strict copyright mode.
   const drums = await call('list_samples', { group: 'drums', query: 'snare' });
-  assert.ok(drums.total >= 10 && drums.samples.every(name => name.startsWith('drums/')));
+  assert.equal(drums.strictMode, true);
+  assert.equal(drums.total, 0);
+  assert.deepEqual(drums.samples, []);
+  const drumKits = await call('list_drum_kits', {});
+  for (const kitName of ['tight-synth', 'house-synth', 'electro-synth', '808-synth', 'acoustic-cc0']) {
+    assert.ok(drumKits.kits[kitName], `missing drum kit ${kitName}`);
+  }
+  const loopAudit = await call('audit_copyright', { audio: 'game/theme-loop.wav' });
+  assert.equal(loopAudit.compliant, true);
   const built = await call('build_sound_catalogue', { limit: 3, refresh: true });
   assert.deepEqual(built.failed, [], `Sound catalogue preset failures: ${JSON.stringify(built.failed)}`);
   assert.equal(built.measured, 3);
@@ -221,8 +240,10 @@ try {
   const chords = await call('resolve_chords', { progression: 'Dm7 G7 Cmaj7' });
   assert.deepEqual(chords.chords[0].names.slice().sort(), ['A4', 'C5', 'D4', 'F4'].sort());
   assert.ok(Object.keys(await call('list_effects')).includes('reverb'));
-  step('samples, catalogue, role search and chord resolution');
+  step('strict sample blocking, synth/CC0 drum kits, catalogue, role search and chord resolution');
   console.log('All game-audio checks passed.');
 } finally {
-  await client.close();
+  await client.close().catch(() => {});
+  await rm(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 }).catch(() => {});
+  await rmdir(scratchRoot).catch(() => {});
 }

@@ -4,24 +4,26 @@
 // HTTP server: they must decode every file, log nothing to the console and pass the page's own offline self-test of the
 // intro to loop join. Set LMMS_AUDITION_BROWSER to a browser executable to choose one, or to "none" to skip that part.
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm, rmdir } from 'node:fs/promises';
 import { existsSync, createReadStream } from 'node:fs';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { DOMParser } from '@xmldom/xmldom';
 import { decodeWav, encodeWav, slice } from './audio.mjs';
+import { killProcessTreeByPid } from './tools/fs-atomic.mjs';
 
-const workspace = await mkdtemp(path.join(tmpdir(), 'lmms-audition-check-'));
+const scratchRoot = fileURLToPath(new URL('./.test-scratch', import.meta.url));
+await mkdir(scratchRoot, { recursive: true });
+const workspace = await mkdtemp(path.join(scratchRoot, 'lmms-audition-check-'));
 console.log(workspace);
 const client = new Client({ name: 'lmms-audition-check', version: '1' });
 await client.connect(new StdioClientTransport({
   command: process.execPath, args: [fileURLToPath(new URL('./server.mjs', import.meta.url))],
-  env: { ...process.env, LMMS_WORKSPACE: workspace },
+  env: { ...process.env, LMMS_WORKSPACE: workspace, LMMS_NO_GUI_LAUNCH: '1' },
 }));
 async function raw(name, args) {
   return client.callTool({ name, arguments: args }, undefined, { timeout: 600000 });
@@ -92,7 +94,12 @@ async function launch(executable, profile) {
       }
       throw new Error(`Timed out waiting for ${until} at ${url}. Status: ${await evaluate("document.getElementById('status')?.textContent")}`);
     },
-    async close() { await Promise.race([send('Browser.close'), pause(2000)]); socket.close(); child.kill(); },
+    async close() {
+      await Promise.race([send('Browser.close').catch(() => {}), pause(2000)]);
+      try { socket.close(); } catch { /* ignore */ }
+      if (child.pid) await killProcessTreeByPid(child.pid);
+      try { child.kill(); } catch { /* ignore */ }
+    },
   };
 }
 
@@ -213,7 +220,7 @@ try {
 
   // 7. Optional: load the pages in a real headless browser through the DevTools protocol.
   let browser = null, used;
-  const profile = await mkdtemp(path.join(tmpdir(), 'lmms-audition-browser-'));
+  const profile = await mkdtemp(path.join(scratchRoot, 'lmms-audition-browser-'));
   for (const candidate of browserCandidates()) {
     try { browser = await launch(candidate, path.join(profile, path.basename(candidate, path.extname(candidate)))); } catch { browser = null; }
     if (browser) { used = candidate; break; }
@@ -271,5 +278,7 @@ try {
   console.log('All audition checks passed.');
 } finally {
   server?.close();
-  await client.close();
+  await client.close().catch(() => {});
+  await rm(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 }).catch(() => {});
+  await rmdir(scratchRoot).catch(() => {});
 }

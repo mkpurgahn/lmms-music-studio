@@ -1,9 +1,8 @@
 // End-to-end check of auto_balance and compare_to_reference through a real stdio connection and the installed LMMS.
 // Run: node verify-balance.mjs
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, rmdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -11,12 +10,14 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { decodeWav } from './audio.mjs';
 import { blockStats, windowLevels } from './tools/balance.mjs';
 
-const workspace = await mkdtemp(path.join(tmpdir(), 'lmms-balance-check-'));
+const scratchRoot = fileURLToPath(new URL('./.test-scratch', import.meta.url));
+await mkdir(scratchRoot, { recursive: true });
+const workspace = await mkdtemp(path.join(scratchRoot, 'lmms-balance-check-'));
 console.log(workspace);
 const client = new Client({ name: 'lmms-balance-check', version: '1' });
 await client.connect(new StdioClientTransport({
   command: process.execPath, args: [fileURLToPath(new URL('./server.mjs', import.meta.url))],
-  env: { ...process.env, LMMS_WORKSPACE: workspace },
+  env: { ...process.env, LMMS_WORKSPACE: workspace, LMMS_NO_GUI_LAUNCH: '1' },
 }));
 async function raw(name, args) {
   return client.callTool({ name, arguments: args }, undefined, { timeout: 600000 });
@@ -44,8 +45,8 @@ try {
   // The hats are far too loud and carry no role, the pad is far too quiet (volume 4), the counter plays one bar of the
   // eight measured, and the pluck lead cannot reach its default -17 dB RMS even at volume 200, so the targets must shift.
   await call('create_project', { output: 'song.mmp', bpm: 120, lengthBars: 12, tracks: [
-    { name: 'Kick', role: 'drums', voice: 'sample', factorySample: 'drums/kick01.ogg', volume: 100, patterns: [{ name: 'Beat', bar: 0, bars: 12, steps: { grid: 'X---x---X-x-x---' } }] },
-    { name: 'Hats', voice: 'sample', factorySample: 'drums/hihat_closed01.ogg', volume: 100, patterns: [{ name: 'Beat', bar: 0, bars: 12, steps: { grid: 'x-x-x-x-x-x-x-x-' } }] },
+    { name: 'Kick', role: 'drums', voice: 'kick', volume: 100, patterns: [{ name: 'Beat', bar: 0, bars: 12, steps: { grid: 'X---x---X-x-x---' } }] },
+    { name: 'Hats', voice: 'hat', volume: 180, patterns: [{ name: 'Beat', bar: 0, bars: 12, steps: { grid: 'x-x-x-x-x-x-x-x-' } }] },
     { name: 'Bass', role: 'bass', voice: 'bass', volume: 60, patterns: [{ name: 'Line', bar: 0, bars: 12, chords: { progression: 'Dm Bb F C', style: 'bass', figure: 'octaves' } }] },
     { name: 'Pad', role: 'texture', voice: 'pad', volume: 4, patterns: [{ name: 'Chords', bar: 0, bars: 12, chords: { progression: 'Dm Bb F C' } }] },
     { name: 'Lead', role: 'lead', voice: 'pluck', volume: 150, patterns: [{ name: 'Tune', bar: 4, bars: 8, melody: { line: 'D5:3 F5:3 A5:6 G5:2 F5:2 | G5:3 F5:3 D5:6 r:4' } }] },
@@ -159,5 +160,7 @@ try {
   step('compare_to_reference reports a pure level change as level and missing hats as missing air');
   console.log('All balance checks passed.');
 } finally {
-  await client.close();
+  await client.close().catch(() => {});
+  await rm(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 }).catch(() => {});
+  await rmdir(scratchRoot).catch(() => {});
 }

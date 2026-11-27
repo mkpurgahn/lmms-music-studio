@@ -159,7 +159,12 @@ export function register({ tool, edit, z, root, paths, project, moduleGuidance }
 
   tool('list_sf2_presets', 'List installed .sf2 SoundFonts in LMMS_SOUNDFONTS and the workspace along with every bank, patch number, preset name, and lockfile provenance.', {
     sf2: z.string().regex(sf2PathPattern).optional().describe('Optional .sf2 relative path to inspect a single SoundFont.'),
-  }, async ({ sf2 }) => {
+    soundfont: z.string().regex(sf2PathPattern).optional().describe('Alias for sf2.'),
+  }, async ({ sf2: sf2Arg, soundfont }) => {
+    if (sf2Arg && soundfont && sf2Arg !== soundfont) {
+      throw new Error('sf2 and soundfont must match when both are supplied');
+    }
+    const sf2 = sf2Arg ?? soundfont;
     const sfDir = getSoundfontsDir();
     const trackedLock = await loadSoundfontLock(TRACKED_LOCK_PATH).catch(() => null);
     const localLock = sfDir ? await loadSoundfontLock(path.join(sfDir, 'soundfont-lock.json')).catch(() => null) : null;
@@ -239,13 +244,19 @@ export function register({ tool, edit, z, root, paths, project, moduleGuidance }
   if (edit && project) {
     edit('set_sf2_instrument', 'Assign an .sf2 SoundFont preset (bank and patch) to an existing LMMS instrument track using native sf2player.', {
       trackName: z.string().min(1).max(100),
-      sf2: z.string().regex(sf2PathPattern).describe('Relative .sf2 path in LMMS_SOUNDFONTS or workspace.'),
+      sf2: z.string().regex(sf2PathPattern).optional().describe('Relative .sf2 path in LMMS_SOUNDFONTS or workspace.'),
+      soundfont: z.string().regex(sf2PathPattern).optional().describe('Alias for sf2: relative .sf2 path in LMMS_SOUNDFONTS or workspace.'),
       bank: z.number().int().min(0).max(128).default(0).describe('MIDI bank number (0 for melodic, 128 for GM drums).'),
       patch: z.number().int().min(0).max(127).default(0).describe('MIDI patch/preset number (0-127).'),
       gain: z.number().min(0.05).max(5).default(1).describe('sf2player output gain (0.05-5).'),
       reverb: z.boolean().default(false),
       chorus: z.boolean().default(false),
-    }, async (doc, { trackName, sf2, bank, patch, gain, reverb, chorus }) => {
+    }, async (doc, { trackName, sf2: sf2Arg, soundfont, bank, patch, gain, reverb, chorus }) => {
+      if (sf2Arg && soundfont && sf2Arg !== soundfont) {
+        throw new Error('sf2 and soundfont must match when both are supplied');
+      }
+      const sf2 = sf2Arg ?? soundfont;
+      if (!sf2) throw new Error('Supply sf2 (or soundfont) with the relative .sf2 path');
       const target = project.instrumentOf(doc, trackName);
       const prepared = await prepareSf2InstrumentSpec({
         sf2,

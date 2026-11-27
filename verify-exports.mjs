@@ -1,20 +1,21 @@
 import assert from 'node:assert/strict';
-import { copyFile, mkdtemp, readFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { copyFile, mkdir, mkdtemp, readFile, rm, rmdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import midiPackage from '@tonejs/midi';
 
-const workspace = await mkdtemp(path.join(tmpdir(), 'lmms-export-check-'));
+const scratchRoot = fileURLToPath(new URL('./.test-scratch', import.meta.url));
+await mkdir(scratchRoot, { recursive: true });
+const workspace = await mkdtemp(path.join(scratchRoot, 'lmms-export-check-'));
 console.log(workspace);
 const fixture = process.argv[2];
 if (fixture) await copyFile(fixture, path.join(workspace, 'source.mmp'));
 const client = new Client({ name: 'lmms-export-check', version: '1' });
 await client.connect(new StdioClientTransport({
   command: process.execPath, args: [fileURLToPath(new URL('./server.mjs', import.meta.url))],
-  env: { ...process.env, LMMS_WORKSPACE: workspace },
+  env: { ...process.env, LMMS_WORKSPACE: workspace, LMMS_NO_GUI_LAUNCH: '1' },
 }));
 async function call(name, args) {
   const result = await client.callTool({ name, arguments: args }, undefined, { timeout: 200000 });
@@ -131,5 +132,7 @@ try {
   assert.ok(stems.stems.every(stem => stem.durationSeconds === dry.durationSeconds && stem.peakDbfs !== null));
   console.log(JSON.stringify({ midi: result, wet, dry, stems }, null, 2));
 } finally {
-  await client.close();
+  await client.close().catch(() => {});
+  await rm(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 }).catch(() => {});
+  await rmdir(scratchRoot).catch(() => {});
 }

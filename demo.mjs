@@ -5,13 +5,13 @@ import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const workspace = path.resolve(process.argv[2] ?? 'assets/music');
+const workspace = path.resolve(process.argv[2] ?? 'output/demo');
 await mkdir(workspace, { recursive: true });
 const client = new Client({ name: 'lmms-mcp-demo', version: '0.1.0' });
 await client.connect(new StdioClientTransport({
   command: process.execPath,
   args: [fileURLToPath(new URL('./server.mjs', import.meta.url))],
-  env: { ...process.env, LMMS_WORKSPACE: workspace },
+  env: { ...process.env, LMMS_WORKSPACE: workspace, LMMS_NO_GUI_LAUNCH: '1' },
 }));
 async function call(name, args) {
   const result = await client.callTool({ name, arguments: args }, undefined, { timeout: 200000 });
@@ -82,6 +82,8 @@ try {
 
   console.log(await call('render_mix', { project, output: 'demo-loop.wav' }));
   console.log(await call('render_mix', { project: alternate, output: 'demo-loop-sparks-variation.wav' }));
+  const audit = await call('audit_copyright', { project });
+  assert.equal(audit.compliant, true);
 } finally {
-  await client.close();
+  await client.close().catch(() => {});
 }

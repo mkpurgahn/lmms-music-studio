@@ -4,23 +4,25 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, mkdtemp, readdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { decodeWav, encodeWav } from './audio.mjs';
+import { verifyAudioFileProvenance, writeDerivedAudioProvenance, writeProvenanceSidecar } from './tools/provenance.mjs';
 
 const run = promisify(execFile);
 const ffmpeg = process.env.LMMS_FFMPEG ?? 'ffmpeg';
-const workspace = await mkdtemp(path.join(tmpdir(), 'lmms-loop-prep-check-'));
+const scratchRoot = fileURLToPath(new URL('./.test-scratch', import.meta.url));
+await mkdir(scratchRoot, { recursive: true });
+const workspace = await mkdtemp(path.join(scratchRoot, 'lmms-loop-prep-check-'));
 console.log(workspace);
 const client = new Client({ name: 'lmms-loop-prep-check', version: '1' });
 await client.connect(new StdioClientTransport({
   command: process.execPath, args: [fileURLToPath(new URL('./server.mjs', import.meta.url))],
-  env: { ...process.env, LMMS_WORKSPACE: workspace },
+  env: { ...process.env, LMMS_WORKSPACE: workspace, LMMS_NO_GUI_LAUNCH: '1' },
 }));
 async function raw(name, args) {
   return client.callTool({ name, arguments: args }, undefined, { timeout: 600000 });
@@ -49,8 +51,8 @@ try {
   // A two-bar intro, a four-bar section played twice, and a one-bar ending, rendered with its tail.
   const bpm = 125, barSeconds = 240 / bpm, sectionSeconds = 4 * barSeconds;
   await call('create_project', { output: 'song.mmp', bpm, lengthBars: 11, tracks: [
-    { name: 'Kick', voice: 'sample', factorySample: 'drums/kick01.ogg', volume: 50, patterns: [{ name: 'Beat', bar: 2, bars: 4, steps: { grid: 'X---x---X-x-x---' } }] },
-    { name: 'Snare', voice: 'sample', factorySample: 'drums/snare01.ogg', volume: 40, patterns: [{ name: 'Beat', bar: 2, bars: 4, steps: { grid: '----X-------X--g' } }] },
+    { name: 'Kick', voice: 'sf2', soundfont: 'virtuosity-drums.sf2', bank: 128, patch: 0, role: 'drums', volume: 85, patterns: [{ name: 'Beat', bar: 2, bars: 4, steps: { grid: 'X---x---X-x-x---', midi: 36 } }] },
+    { name: 'Snare', voice: 'sf2', soundfont: 'virtuosity-drums.sf2', bank: 128, patch: 0, role: 'drums', volume: 75, patterns: [{ name: 'Beat', bar: 2, bars: 4, steps: { grid: '----X-------X--g', midi: 38 } }] },
     { name: 'Bass', voice: 'bass', volume: 80, patterns: [{ name: 'Line', bar: 2, bars: 4, chords: { progression: 'C G Am F', style: 'bass', figure: 'octaves' } }] },
     { name: 'Keys', voice: 'pad', volume: 45, patterns: [
       { name: 'Intro', bar: 0, bars: 2, chords: { progression: 'Dm Em' } },
@@ -163,6 +165,13 @@ try {
     const fromMp3 = await call('find_loop_points', { audio: 'twice.mp3' });
     assert.equal(fromMp3.decoder, 'ffmpeg');
     near(fromMp3.candidates[0].lengthSeconds, sectionSeconds, 0.003, 'MP3 loop length');
+    await fails('prepare_loop', { audio: 'twice.mp3', outputDirectory: 'blocked-mp3', targetLufs: -18 }, /provenance/i);
+    assert.ok(!existsSync(path.join(workspace, 'blocked-mp3')));
+    const twiceCheck = await verifyAudioFileProvenance(path.join(workspace, 'twice.wav'), { workspaceDir: workspace });
+    await writeDerivedAudioProvenance(path.join(workspace, 'twice.mp3'), [twiceCheck], {
+      workspaceDir: workspace,
+      generatorTool: 'ffmpeg-transcode',
+    });
     const mp3Loop = await call('prepare_loop', { audio: 'twice.mp3', outputDirectory: 'from-mp3', targetLufs: -18 });
     assert.equal(mp3Loop.name, 'twice');
     near(mp3Loop.measured.integratedLufs, -18, 0.5, 'MP3 loop loudness');
@@ -171,10 +180,18 @@ try {
     step(`44.1 kHz WAV and MP3 sources: loop lengths ${at44.candidates[0].lengthSeconds} s and ${fromMp3.candidates[0].lengthSeconds} s, MP3 loop boundary jump ${mp3Loop.measured.boundaryJumpDbfs} dBFS`);
   } else step('ffmpeg not found: skipped the 44.1 kHz and MP3 checks');
 
-  // 5. Honesty and safety: no beat means a person picks, and nothing is overwritten.
+  // 5. Honesty and safety: un-provenanced WAVs are blocked, no beat means a person picks, and nothing is overwritten.
   let state = 1;
   const hiss = Float32Array.from({ length: 48000 * 10 }, () => { state = (state * 1664525 + 1013904223) >>> 0; return 0.1 * (state / 2 ** 31 - 1); });
   await writeFile(path.join(workspace, 'hiss.wav'), encodeWav({ sampleRate: 48000, channels: [hiss] }));
+  await fails('prepare_loop', { audio: 'hiss.wav', outputDirectory: 'hiss-unprovenanced' }, /provenance/i);
+  assert.ok(!existsSync(path.join(workspace, 'hiss-unprovenanced')));
+  await writeProvenanceSidecar(path.join(workspace, 'hiss.wav'), {
+    workspaceDir: workspace,
+    classification: 'pure-synthesis',
+    generatorTool: 'verify-loop-prep-prng',
+    sources: [{ kind: 'pure-synthesis', pluginOrLibrary: 'lcg-noise-generator', licence: 'unrestricted-synthesis' }],
+  });
   const unsure = await call('find_loop_points', { audio: 'hiss.wav' });
   assert.equal(unsure.needsHumanChoice, true);
   await fails('prepare_loop', { audio: 'hiss.wav', outputDirectory: 'hiss-out' }, /person should listen and pick.*Nothing was written/s);
@@ -185,8 +202,10 @@ try {
   await fails('find_loop_points', { audio: 'missing.wav' }, /File not found: missing\.wav/);
   await fails('prepare_loop', { audio: 'twice.wav', outputDirectory: 'game' }, /already exists/);
   await fails('find_loop_points', { audio: '../outside.wav' }, /Invalid|match/i);
-  step('low confidence refuses to guess, existing output is kept, paths stay in the workspace');
+  step('provenance gate enforced, low confidence refuses to guess, existing output is kept, paths stay in the workspace');
   console.log('All loop-prep checks passed. Audio was checked by measurement, not by ear.');
 } finally {
-  await client.close();
+  await client.close().catch(() => {});
+  await rm(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 }).catch(() => {});
+  await rmdir(scratchRoot).catch(() => {});
 }

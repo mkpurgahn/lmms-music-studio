@@ -143,6 +143,7 @@ const track = z.object({
   sample: workspaceWav.optional(), factorySample: factorySample.optional().describe('Stock LMMS sample path (disabled when LMMS_STRICT_COPYRIGHT=1; in strict mode use voice: "sf2" with list_sf2_presets, pure-synth drum voices kick/snare/hat/clap, or provenanced workspace WAVs).'),
   preset: presetFile.optional(),
   sf2: z.string().regex(sf2PathPattern).optional().describe('SoundFont (.sf2) path relative to LMMS_SOUNDFONTS or workspace (required when voice is "sf2"). See list_sf2_presets.'),
+  soundfont: z.string().regex(sf2PathPattern).optional().describe('Alias for sf2: SoundFont (.sf2) path relative to LMMS_SOUNDFONTS or workspace.'),
   bank: z.number().int().min(0).max(128).optional().describe('SoundFont MIDI bank (0 melodic, 128 GM drums; default 0).'),
   patch: z.number().int().min(0).max(127).optional().describe('SoundFont MIDI patch number (0-127; default 0).'),
   sf2Gain: z.number().min(0.05).max(5).optional().describe('SoundFont player output gain (0.05-5; default 1).'),
@@ -284,14 +285,19 @@ async function checkTrack(item) {
       await verifyAudioFileProvenance(file, { workspaceDir: root, env: process.env });
     }
   } else if (item.sample || item.factorySample) throw new Error(`Track "${item.name}": sample and factorySample need voice "sample"`);
+  const sf2File = item.sf2 ?? item.soundfont;
+  if (item.sf2 && item.soundfont && item.sf2 !== item.soundfont) {
+    throw new Error(`Track "${item.name}": sf2 and soundfont must match when both are supplied`);
+  }
   if ((item.voice === 'preset') !== Boolean(item.preset)) throw new Error(`Track "${item.name}": voice "preset" and the preset field go together`);
-  if ((item.voice === 'sf2') !== Boolean(item.sf2)) throw new Error(`Track "${item.name}": voice "sf2" and the sf2 field go together`);
+  if ((item.voice === 'sf2') !== Boolean(sf2File)) throw new Error(`Track "${item.name}": voice "sf2" and the sf2 field go together`);
   if (item.voice !== 'sf2' && (item.bank !== undefined || item.patch !== undefined || item.sf2Gain !== undefined)) {
     throw new Error(`Track "${item.name}": bank, patch and sf2Gain need voice "sf2"`);
   }
   if (item.voice === 'sf2') {
+    item.sf2 = sf2File;
     item._preparedSf2 = await prepareSf2InstrumentSpec({
-      sf2: item.sf2,
+      sf2: sf2File,
       bank: item.bank ?? 0,
       patch: item.patch ?? 0,
       gain: item.sf2Gain ?? 1,
@@ -310,7 +316,7 @@ export function addTrack(parent, item) {
       { src: item.sample ? path.join(root, item.sample).replaceAll('\\', '/') : item.factorySample, amp: 100, sframe: 0, eframe: 1, interp: 1 });
   } else if (item.voice === 'sf2') {
     const sf2Spec = item._preparedSf2 ?? {
-      asciiPath: resolveSf2Path(item.sf2, { root, soundfontsDir: soundfontsDirectory }).fullPath.replaceAll('\\', '/'),
+      asciiPath: resolveSf2Path(item.sf2 ?? item.soundfont, { root, soundfontsDir: soundfontsDirectory }).fullPath.replaceAll('\\', '/'),
       bank: item.bank ?? 0,
       patch: item.patch ?? 0,
       gain: item.sf2Gain ?? 1,

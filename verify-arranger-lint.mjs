@@ -2,19 +2,20 @@
 // Run: node verify-arranger-lint.mjs
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, mkdtemp, rm, rmdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
-const workspace = await mkdtemp(path.join(tmpdir(), 'lmms-arranger-lint-check-'));
+const scratchRoot = fileURLToPath(new URL('./.test-scratch', import.meta.url));
+await mkdir(scratchRoot, { recursive: true });
+const workspace = await mkdtemp(path.join(scratchRoot, 'lmms-arranger-lint-check-'));
 console.log(workspace);
 const client = new Client({ name: 'lmms-arranger-lint-check', version: '1' });
 await client.connect(new StdioClientTransport({
   command: process.execPath, args: [fileURLToPath(new URL('./server.mjs', import.meta.url))],
-  env: { ...process.env, LMMS_WORKSPACE: workspace },
+  env: { ...process.env, LMMS_WORKSPACE: workspace, LMMS_NO_GUI_LAUNCH: '1' },
 }));
 async function raw(name, args) {
   return client.callTool({ name, arguments: args }, undefined, { timeout: 600000 });
@@ -160,5 +161,7 @@ try {
 
   console.log('All arranger lint checks passed.');
 } finally {
-  await client.close();
+  await client.close().catch(() => {});
+  await rm(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 }).catch(() => {});
+  await rmdir(scratchRoot).catch(() => {});
 }

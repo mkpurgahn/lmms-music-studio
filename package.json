@@ -69,7 +69,7 @@
   "scripts": {
     "demo": "node demo.mjs",
     "test": "node .github/scripts/run-tests.mjs",
-    "verify": "node verify-exports.mjs && node verify-game-audio.mjs"
+    "verify": "node verify-exports.mjs && node verify-game-audio.mjs && node verify-studio-e2e.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",

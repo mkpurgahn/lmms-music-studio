@@ -266,14 +266,20 @@ try {
     $mcpState = if ($mcpResult.created) { 'created' } elseif ($mcpResult.changed) { 'updated' } else { 'unchanged (already up to date)' }
     Write-Output "[setup] MCP configuration ($mcpState): $($mcpResult.path)"
 
-    # 9. Copilot Skill installation (project skill is tracked in .github\skills\lmms-music-studio\SKILL.md)
-    $sourceSkillDir = Join-Path $repoRoot 'skills\lmms-music-studio'
-    $projectSkillFile = Join-Path $repoRoot '.github\skills\lmms-music-studio\SKILL.md'
+    # 9. Copilot Skill installation (project skill is tracked in .github\skills\make-music\)
+    $sourceSkillDir = Join-Path $repoRoot 'skills\make-music'
+    $projectSkillFile = Join-Path $repoRoot '.github\skills\make-music\SKILL.md'
     $userSkillSummary = 'skipped (-SkipUserSkill)'
 
     if (-not $SkipUserSkill) {
         if (-not (Test-Path -LiteralPath $sourceSkillDir)) {
             Fail-Step "Skill source directory missing: $sourceSkillDir"
+        }
+        foreach ($requiredSkillFile in @('SKILL.md', 'producer-tool-reference.md')) {
+            $candidateSkillFile = Join-Path $sourceSkillDir $requiredSkillFile
+            if (-not (Test-Path -LiteralPath $candidateSkillFile)) {
+                Fail-Step "Required skill file missing: $candidateSkillFile"
+            }
         }
         $targetSkillsRoot = if ($env:LMMS_INSTALLER_COPILOT_SKILLS_DIR) {
             $env:LMMS_INSTALLER_COPILOT_SKILLS_DIR
@@ -281,13 +287,18 @@ try {
             $userHome = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
             Join-Path $userHome '.copilot\skills'
         }
-        $userSkillDir = Join-Path $targetSkillsRoot 'lmms-music-studio'
+        $userSkillDir = Join-Path $targetSkillsRoot 'make-music'
         New-Item -ItemType Directory -Force -Path $userSkillDir | Out-Null
         Get-ChildItem -LiteralPath $sourceSkillDir -Force | ForEach-Object {
             Copy-Item -LiteralPath $_.FullName -Destination $userSkillDir -Recurse -Force
         }
+        $legacySkillDir = Join-Path $targetSkillsRoot 'lmms-music-studio'
+        if (Test-Path -LiteralPath $legacySkillDir) {
+            Remove-Item -LiteralPath $legacySkillDir -Recurse -Force
+            Write-Output "[setup] Removed legacy Copilot skill directory: $legacySkillDir"
+        }
         $userSkillSummary = Join-Path $userSkillDir 'SKILL.md'
-        Write-Output "[setup] User Copilot skill installed: $userSkillSummary"
+        Write-Output "[setup] User Copilot skill installed: $userSkillDir (SKILL.md + producer-tool-reference.md)"
     } else {
         Write-Output '[setup] Skipped user Copilot skill installation (-SkipUserSkill).'
     }
@@ -315,8 +326,8 @@ try {
     Write-Output "User Skill      : $userSkillSummary"
     Write-Output ''
     Write-Output 'Next steps:'
-    Write-Output "  1. Open this folder ($repoRoot) in GitHub Copilot, Claude Code, VS Code, or Cursor, or copy .mcp.json into your AI client config."
-    Write-Output '  2. Ask your AI producer to create a song, render stems and master, and open the Browser Studio Timeline.'
+    Write-Output "  1. Open GitHub Copilot (or open $repoRoot in Claude Code, VS Code, or Cursor, or copy .mcp.json into your AI client config)."
+    Write-Output "  2. Type /make-music (or 'let's make a song') to pick your vibe in plain English and open the Studio Player."
 } finally {
     Pop-Location
 }

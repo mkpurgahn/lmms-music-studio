@@ -41,7 +41,7 @@ What `install-windows.ps1` does safely and idempotently:
 4. Creates your workspace folder (`%USERPROFILE%\Music\LMMS Music Studio` by default).
 5. Downloads, verifies (`LICENSE` + `SHA-256`), and compiles the CC0-1.0 `core` SoundFont pack into `%LOCALAPPDATA%\lmms-music-studio\soundfonts`. Repeat runs verify `soundfont-lock.json` hashes in under a second without re-downloading.
 6. Non-destructively merges `mcpServers["lmms-music-studio"]` into `.mcp.json` in the repository root (preserving any other MCP servers you already have configured). `.mcp.json` is gitignored so local machine paths are never committed; see `.mcp.example.json` for a portable template.
-7. Installs the producer skill to `%USERPROFILE%\.copilot\skills\lmms-music-studio\SKILL.md` (touching only that subfolder) alongside the project skill at `.github\skills\lmms-music-studio\SKILL.md`.
+7. Installs the `/make-music` skill (`SKILL.md` and `producer-tool-reference.md`) to `%USERPROFILE%\.copilot\skills\make-music\` (and removes any legacy `%USERPROFILE%\.copilot\skills\lmms-music-studio\` folder from older installs) alongside the project skill in `.github\skills\make-music\`.
 8. Runs `node .github\scripts\smoke-server.mjs` and prints your ready summary.
 
 ### Optional Installer Flags
@@ -77,9 +77,9 @@ Note: Full-song multi-stem renders can take 30 to 120 seconds. Set your MCP clie
 Running `.\install-windows.ps1` writes `.mcp.json` in your checkout root using your exact local paths (modeled on `.mcp.example.json`). Here is how to connect popular AI clients on Windows:
 
 ### GitHub Copilot App & GitHub Copilot CLI
-- Open the `lmms-music-studio` repository folder in GitHub Copilot App or Copilot CLI.
-- Copilot automatically reads `.mcp.json` for the `lmms-music-studio` MCP server and `.github\skills\lmms-music-studio\SKILL.md` for the producer workflow.
-- Because `install-windows.ps1` also installs `%USERPROFILE%\.copilot\skills\lmms-music-studio\SKILL.md`, you can copy the `lmms-music-studio` server block from `.mcp.json` into any other project's `.mcp.json` and keep the same producer skill.
+- After running `.\install-windows.ps1`, the `/make-music` skill (`SKILL.md` + `producer-tool-reference.md`) is installed in `%USERPROFILE%\.copilot\skills\make-music\` and mirrored in `.github\skills\make-music\`.
+- Open the `lmms-music-studio` repository folder in GitHub Copilot App or Copilot CLI (which reads `.mcp.json` automatically), OR simply type `/make-music` (or `"let's make a song"`) from any GitHub Copilot App chat.
+- If you start `/make-music` from a general chat where MCP tools are not attached yet, the skill walks you through the 4 plain-English intake questions right there, automatically coordinates an `lmms-music-studio` branch session in the background, and opens the Studio Player in your Browser Canvas when ready.
 
 ### Claude Desktop
 Open `%APPDATA%\Claude\claude_desktop_config.json` (create it if it does not exist) and merge the `"lmms-music-studio"` entry generated in your repo's `.mcp.json`:
@@ -106,7 +106,7 @@ Restart Claude Desktop after saving.
 
 ### Claude Code
 - When launched inside `lmms-music-studio`, Claude Code detects `.mcp.json` automatically (approve the project MCP server when prompted) and reads `AGENTS.md`.
-- To install the skill in another project for Claude Code, copy `skills\lmms-music-studio` to `.claude\skills\lmms-music-studio`.
+- To install the `/make-music` skill in another project for Claude Code, copy `skills\make-music` to `.claude\skills\make-music`.
 
 ### OpenAI Codex CLI / App
 Add the server to `%USERPROFILE%\.codex\config.toml` (using the exact paths printed by `install-windows.ps1`):
@@ -123,7 +123,7 @@ LMMS_SOUNDFONTS = "C:\\Users\\YOUR_USERNAME\\AppData\\Local\\lmms-music-studio\\
 LMMS_STRICT_COPYRIGHT = "1"
 ```
 
-For project-level skill discovery in Codex, copy `skills\lmms-music-studio` to `.agents\skills\lmms-music-studio`.
+For project-level skill discovery in Codex, copy `skills\make-music` to `.agents\skills\make-music`.
 
 ### VS Code & Cursor
 - **Cursor:** Copy `.mcp.json` to `.cursor\mcp.json` in your workspace (or merge `mcpServers["lmms-music-studio"]` into `%USERPROFILE%\.cursor\mcp.json`).
@@ -131,53 +131,75 @@ For project-level skill discovery in Codex, copy `skills\lmms-music-studio` to `
 
 ---
 
-## 4. How to Produce a Song by Ear
+## 4. How to Produce a Song by Ear (`/make-music`)
 
-You never need to specify frequencies, MIDI numbers, or compressor ratios. Describe the mood, pace, and instruments you want, listen in your browser, and tell the AI what your ears notice.
+You need **zero** knowledge of BPM, bars, musical keys, chord names, or audio stems. Just invoke `/make-music` (or describe a mood in everyday words), click through four plain-English choices, listen in the Studio Player, and react by ear.
 
-### Step 1: Start a Song with Synths and CC0 Acoustic Instruments
+### Step 1: Type `/make-music` (No Technical Terms Needed)
 
-Try a prompt like:
+A complete beginner can literally just type:
 
 ```text
-Create a warm 96 BPM acoustic-electronic town theme in F major, 16 bars long, with an intro, main theme, and gentle ending. Use CC0 upright piano, nylon guitar, contrabass, acoustic drums, and a soft synth pad. Render the stems and master with a natural ring-out ending, check the mix and copyright provenance, and give me the Browser Studio Timeline link.
+/make-music
 ```
 
-Behind the scenes, your AI calls `get_started`, `get_taste`, and `list_sf2_presets`, writes the `.mmp` project, checks note voice-leading with `lint_arrangement`, balances track levels with `auto_balance`, renders sample-aligned stems and master with `tail: "ring"`, verifies loudness and provenance (`analyze_audio`, `audit_copyright`), and calls `build_timeline_page`.
-
-### Step 2: Listen in the Browser Studio Timeline & Pin Notes to Bars
-
-Open the plain URL your AI returns (for example `http://127.0.0.1:18290/studio/timeline?session=town-theme-v1`):
-- Press `Space` or click `Play` to hear all stems in sample-accurate WebAudio sync, or toggle `Master Mix` to hear the mastered stereo render.
-- Click `S` (Solo) or `M` (Mute) on individual lanes (Piano, Nylon Guitar, Contrabass, Drums, Pad) to hear exactly what each part is doing.
-- Drag or click a section header to loop that section.
-- Click any bar on the timeline to pin a plain-English note (for example: `Display Bar 5: piano feels buried under the guitar, and the drums sound too stiff`). Rate each section from 1 to 5 stars, then click `Send Feedback to Studio`.
-
-Then tell your AI:
+or say in everyday English:
 
 ```text
-Read my Studio feedback, fix the issues I noted, and set up a loudness-matched A/B comparison between v1 and v2.
+let's make a song
+```
+
+```text
+make something chill for a rainy night
+```
+
+The `/make-music` skill never asks for BPM, bars, keys, or stem flags. Instead, it walks you one question at a time through **4 plain-English multiple-choice decisions** (skipping any your prompt already answered, or picking cohesive defaults automatically if you say `"surprise me"` / `"pick for me"`):
+
+1. **Vibe:** `Chill & atmospheric (rainy night, menu, focus) (Recommended)`, `Warm, emotional, or cinematic`, `Upbeat, driving, or energetic`, or `Dark, tense, or mysterious`
+2. **Sounds:** `Mix of real instruments + synths (Recommended)`, `Mostly real instruments (piano, strings, guitar, real drums)`, or `Pure electronic & synths`
+3. **Pace:** `Medium steady groove (Recommended)`, `Slow & spacious`, or `Fast & high-energy`
+4. **Format:** `Complete piece with a natural fade/ring-out ending (Recommended)` or `Seamless background loop`
+
+Behind the scenes, your AI translates those choices into chords, melodies, CC0-1.0 acoustic SoundFonts and native synthesizers, checks voice-leading with `lint_arrangement`, renders sample-aligned instrument tracks and a master mix, verifies clipping and copyright provenance (`analyze_audio`, `audit_copyright`), **opens the interactive Studio Player automatically in the Browser Canvas**, and prints the plain copyable URL (for example `http://127.0.0.1:18290/studio/timeline?session=rainy-night-v1`).
+
+### Step 2: Listen in the Studio Player & Pick Plain-English Feedback
+
+Inside the Studio Player in Browser Canvas (or at the plain `http://127.0.0.1:18290/studio/timeline?session=rainy-night-v1` URL):
+- Press `Space` or click `Play` to hear all instruments in sample-accurate WebAudio sync, or toggle `Master Mix` to hear the stereo master.
+- Click `S` (Solo) or `M` (Mute) on individual lanes (Piano, Strings, Sub Bass, Drums) to hear what each part is doing.
+- Click a section header to loop that section, or click any bar on the timeline to pin a plain-English note (for example: `Display Bar 5: piano feels buried, and the drums sound too stiff`), rate sections from 1 to 5 stars, and click `Send Feedback to Studio`.
+
+Right in chat, `/make-music` offers clickable plain-English reaction options so you never need mixing jargon:
+- `"I pinned notes in Studio Player - apply my feedback"`
+- `"Sounds muddy, boxy, or cluttered - clean up the mix"`
+- `"Feels flat or repetitive - add movement and energy"`
+- `"Good direction - make it longer or open in Desktop LMMS"`
+
+Or simply describe what your ears notice in your own words:
+
+```text
+Sounds muddy in the middle, and the drums feel a little stiff.
 ```
 
 ### Step 3: Compare Revisions Fairly with Loudness-Matched A/B
 
-Human ears naturally perceive a louder mix as "better" even when the balance is worse. When your AI calls `build_audition_page` with `files: ["town-theme-v1.wav", "town-theme-v2.wav"]`, the Studio Audition player automatically trims louder versions down to match the quietest file's integrated LUFS.
+Human ears naturally perceive a louder mix as "better" even when the balance is worse. Each revision saves a fresh version (`rainy-night-v2.mmp` and `rainy-night-v2.wav`) alongside `v1` and opens the Studio Audition player in Browser Canvas (`http://127.0.0.1:18290/studio/audition?session=rainy-night-ab`), automatically trimming louder renders down to match the quietest file's loudness.
 
-Open the returned `http://127.0.0.1:18290/studio/audition?session=...` URL, switch seamlessly between `A` and `B` mid-phrase, and save lasting taste rules whenever you find a sound you love:
+Switch seamlessly between `A` and `B` mid-phrase, and tell your AI whenever you find preferences worth keeping for future songs:
 
 ```text
-Version B is much clearer. Remember in my taste profile that I like sparse piano melodies, gentle MPC swing on drums, and light reverb.
+Version 2 sounds much cleaner. Remember that I like gentle piano, relaxed drums, and light room reverb.
 ```
 
 ### Step 4: Open and Edit in Desktop LMMS with Two-Way Sync
 
-Want to nudge a note on the piano roll or tweak a synth knob yourself?
-1. Click `Open in LMMS` directly in the Browser Studio header, or tell your AI: `Open town-theme-v2.mmp in Desktop LMMS.`
+Want to nudge a note on the piano roll or turn a synth knob yourself?
+1. Click `"Good direction - make it longer or open in Desktop LMMS"` in chat, click `Open in LMMS` in the Studio Player header, or say: `Open rainy-night-v2.mmp in Desktop LMMS.`
 2. Edit notes, mixer levels, or native synth controls in LMMS 1.2.2 and press `Ctrl+S` (saving either `.mmp` or compressed `.mmpz`).
 3. Tell your AI:
 
 ```text
-Sync my changes from Desktop LMMS, re-render the stems and master, and refresh the Studio Timeline.
+Bring in the changes I saved in Desktop LMMS and update the Studio Player.
 ```
 
 LMMS Music Studio tracks the opened file's SHA-256 hash in `.studio-lmms-sync.json`. If you saved changes in Desktop LMMS and forgot to mention it, the MCP server blocks accidental AI overwrites until `sync_from_lmms` adopts and provenance-checks your edits.
@@ -268,7 +290,7 @@ npm run verify
 
 ### Further Reference Docs in This Repository
 - Producer and contributor guide: `AGENTS.md`
-- Copilot / agent skill definition: `skills\lmms-music-studio\SKILL.md`
+- Copilot `/make-music` skill & producer reference: `skills\make-music\SKILL.md` and `skills\make-music\producer-tool-reference.md`
 - Browser timeline & stem player details: `docs\timeline.md`
 - Audition player, A/B loudness matching, & taste memory: `docs\audition.md`
 - Musical blueprints & motif development: `docs\blueprints.md`

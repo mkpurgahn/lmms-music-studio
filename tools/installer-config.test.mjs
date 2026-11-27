@@ -21,6 +21,12 @@ const scratchRoot = path.join(repoRoot, '.test-scratch');
 const EMOJI_OR_SYMBOL_REGEX = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u;
 const LABEL_HYPERLINK_REGEX = /!?\[[^\]]+\]\([^)]+\)/;
 
+function stripMarkdownCode(markdown) {
+  return markdown
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`[^`\r\n]+`/g, '');
+}
+
 async function makeScratch(t, prefix) {
   await mkdir(scratchRoot, { recursive: true });
   const dir = await mkdtemp(path.join(scratchRoot, prefix));
@@ -233,8 +239,10 @@ test('Phase 5 docs, skills, installer, and MCP onboarding stay emoji-free, plain
   const mustBeEmojiFree = [
     'README.md',
     'AGENTS.md',
-    'skills/lmms-music-studio/SKILL.md',
-    '.github/skills/lmms-music-studio/SKILL.md',
+    'skills/make-music/SKILL.md',
+    'skills/make-music/producer-tool-reference.md',
+    '.github/skills/make-music/SKILL.md',
+    '.github/skills/make-music/producer-tool-reference.md',
     'install-windows.ps1',
     'setup-windows.ps1',
     'setup-libraries-windows.ps1',
@@ -248,17 +256,40 @@ test('Phase 5 docs, skills, installer, and MCP onboarding stay emoji-free, plain
     assert.doesNotMatch(content, EMOJI_OR_SYMBOL_REGEX, `${rel} must contain zero emojis or Unicode symbols`);
   }
 
-  // Verify plain URLs/paths (no [label](url) hyperlinks) in README.md, AGENTS.md, and SKILL.md.
-  for (const rel of ['README.md', 'AGENTS.md', 'skills/lmms-music-studio/SKILL.md', '.github/skills/lmms-music-studio/SKILL.md']) {
+  // Verify plain URLs/paths (no rendered [label](url) hyperlinks outside code spans) in docs and skills.
+  assert.match(stripMarkdownCode('Check [Studio](http://127.0.0.1:18290) and `code`'), LABEL_HYPERLINK_REGEX);
+  for (const rel of [
+    'README.md',
+    'AGENTS.md',
+    'skills/make-music/SKILL.md',
+    'skills/make-music/producer-tool-reference.md',
+    '.github/skills/make-music/SKILL.md',
+    '.github/skills/make-music/producer-tool-reference.md',
+  ]) {
     const content = await readFile(path.join(repoRoot, rel), 'utf8');
-    assert.doesNotMatch(content, LABEL_HYPERLINK_REGEX, `${rel} must use plain copyable paths/URLs instead of [label](url) links`);
+    assert.doesNotMatch(
+      stripMarkdownCode(content),
+      LABEL_HYPERLINK_REGEX,
+      `${rel} must use plain copyable paths/URLs instead of [label](url) links`,
+    );
   }
 
-  // Project and user-distributable SKILL.md copies must match byte-for-byte, and legacy lmms-game-audio must be gone.
-  const mainSkill = await readFile(path.join(repoRoot, 'skills/lmms-music-studio/SKILL.md'), 'utf8');
-  const ghSkill = await readFile(path.join(repoRoot, '.github/skills/lmms-music-studio/SKILL.md'), 'utf8');
-  assert.equal(mainSkill, ghSkill);
+  // Project and user-distributable make-music skill files must match byte-for-byte, and legacy skill folders must be gone.
+  for (const fileName of ['SKILL.md', 'producer-tool-reference.md']) {
+    const mainBuf = await readFile(path.join(repoRoot, 'skills/make-music', fileName));
+    const ghBuf = await readFile(path.join(repoRoot, '.github/skills/make-music', fileName));
+    assert.equal(Buffer.compare(mainBuf, ghBuf), 0, `skills/make-music/${fileName} and .github/skills/make-music/${fileName} must match byte-for-byte`);
+  }
   assert.equal(existsSync(path.join(repoRoot, 'skills/lmms-game-audio')), false);
+  assert.equal(existsSync(path.join(repoRoot, 'skills/lmms-music-studio')), false);
+  assert.equal(existsSync(path.join(repoRoot, '.github/skills/lmms-music-studio')), false);
+
+  // Verify installer installs make-music (SKILL.md + producer-tool-reference.md) and removes legacy lmms-music-studio skill dir.
+  const installerScript = await readFile(path.join(repoRoot, 'install-windows.ps1'), 'utf8');
+  assert.match(installerScript, /skills\\make-music/);
+  assert.match(installerScript, /producer-tool-reference\.md/);
+  assert.match(installerScript, /Join-Path \$targetSkillsRoot 'lmms-music-studio'/);
+  assert.match(installerScript, /Remove-Item -LiteralPath \$legacySkillDir -Recurse -Force/);
 
   // Verify .gitignore ignores .mcp.json so local machine paths are never staged.
   const gitignore = await readFile(path.join(repoRoot, '.gitignore'), 'utf8');

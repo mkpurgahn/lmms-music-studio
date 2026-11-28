@@ -18,7 +18,16 @@ export const CC0_CANONICAL_LICENSE_SHA256 = 'a2010f343487d3f7618affe54f789f54876
 export const VSCO2_CE_LICENSE_SHA256 = '4d2eef679d5faf924534bcc132646322e9a852ce50ae5616694e0b95f7b8275d';
 export const UPRIGHT_PIANO_KW_SF2_SHA256 = 'cf2a98eb38a32c4954b4b6e2caae4112d62dd8e892eceefdd7942b0e7d01ac2f';
 
-export const PACK_NAMES = Object.freeze(['core', 'upright-bass', 'meta-piano', 'vsco-extended']);
+export const PACK_NAMES = Object.freeze([
+  'core',
+  'upright-bass',
+  'meta-piano',
+  'vsco-extended',
+  'vsco-complete',
+  'all',
+]);
+
+const lockFileCache = new Map();
 
 export const SOUNDFONT_TARGETS = Object.freeze({
   'upright-piano-kw': {
@@ -268,9 +277,215 @@ export const SOUNDFONT_TARGETS = Object.freeze({
       { name: 'Solo Violin Pizzicato', bank: 0, preset: 10, sfzRelPath: 'SViolinPizz.sfz', targetVelocity: 90, zoneStride: 2 },
     ],
   },
+  'vsco-strings-complete': {
+    id: 'vsco-strings-complete',
+    pack: 'vsco-complete',
+    fileName: 'vsco-strings-complete.sf2',
+    bankName: 'VSCO-2 CE Strings Complete (CC0-1.0)',
+    licence: 'CC0-1.0',
+    licenceRegistryId: 'vsco-2-ce',
+    kind: 'git-sfz',
+    repoKey: 'vsco-2-ce',
+    repoUrl: 'https://github.com/sgossner/VSCO-2-CE.git',
+    branch: 'SFZ',
+    commit: '6dd651d55dde97fd4028699be9d4481f26917891',
+    licencePath: 'LICENSE',
+    licenceSha256: VSCO2_CE_LICENSE_SHA256,
+    initialSparsePaths: [
+      '/LICENSE',
+      '/ContrabassTrem.sfz',
+      '/ContrabassPizz.sfz',
+      '/ContrabassSusNV.sfz',
+      '/CelloEnsTrem.sfz',
+      '/CelloEnsSusVib.sfz',
+      '/CelloEnsSusVib-Quiet.sfz',
+      '/CelloEnsPizz.sfz',
+      '/ViolaEnsSusVib.sfz',
+      '/ViolaEnsSusVib-Quiet.sfz',
+      '/ViolaEnsSpic.sfz',
+      '/ViolaEnsPizz.sfz',
+      '/ViolinEnsSusVib-Quiet.sfz',
+      '/ViolinEnsPizz.sfz',
+      '/SViolinVib.sfz',
+      '/SViolinVib-Quiet.sfz',
+      '/SViolinSpic.sfz',
+    ],
+    presets: [
+      { name: 'Contrabass Tremolo', bank: 0, preset: 0, sfzRelPath: 'ContrabassTrem.sfz', targetVelocity: 90 },
+      { name: 'Contrabass Pizz', bank: 0, preset: 1, sfzRelPath: 'ContrabassPizz.sfz', targetVelocity: 90, zoneStride: 2 },
+      { name: 'Contrabass Non-Vib', bank: 0, preset: 2, sfzRelPath: 'ContrabassSusNV.sfz', targetVelocity: 90, zoneStride: 2 },
+      { name: 'Cello Ens Tremolo', bank: 0, preset: 3, sfzRelPath: 'CelloEnsTrem.sfz', targetVelocity: 90, zoneStride: 2 },
+      { name: 'Cello Ens Sustain', bank: 0, preset: 4, sfzRelPath: 'CelloEnsSusVib.sfz', targetVelocity: 90, zoneStride: 2 },
+      { name: 'Cello Ens Quiet', bank: 0, preset: 5, sfzRelPath: 'CelloEnsSusVib-Quiet.sfz', targetVelocity: 32, zoneStride: 2 },
+      { name: 'Cello Ens Pizzicato', bank: 0, preset: 6, sfzRelPath: 'CelloEnsPizz.sfz', targetVelocity: 90, zoneStride: 2 },
+      { name: 'Viola Ens Sustain', bank: 0, preset: 7, sfzRelPath: 'ViolaEnsSusVib.sfz', targetVelocity: 90, zoneStride: 2 },
+      { name: 'Viola Ens Quiet', bank: 0, preset: 8, sfzRelPath: 'ViolaEnsSusVib-Quiet.sfz', targetVelocity: 32, zoneStride: 2 },
+      { name: 'Viola Ens Spiccato', bank: 0, preset: 9, sfzRelPath: 'ViolaEnsSpic.sfz', targetVelocity: 90, zoneStride: 2 },
+      { name: 'Viola Ens Pizzicato', bank: 0, preset: 10, sfzRelPath: 'ViolaEnsPizz.sfz', targetVelocity: 90, zoneStride: 2 },
+      { name: 'Violin Ens Quiet', bank: 0, preset: 11, sfzRelPath: 'ViolinEnsSusVib-Quiet.sfz', targetVelocity: 32, zoneStride: 2 },
+      { name: 'Violin Ens Pizz', bank: 0, preset: 12, sfzRelPath: 'ViolinEnsPizz.sfz', targetVelocity: 90, zoneStride: 2 },
+      { name: 'Solo Violin Vibrato', bank: 0, preset: 13, sfzRelPath: 'SViolinVib.sfz', targetVelocity: 90, zoneStride: 2 },
+      { name: 'Solo Violin Quiet', bank: 0, preset: 14, sfzRelPath: 'SViolinVib-Quiet.sfz', targetVelocity: 32, zoneStride: 2 },
+      { name: 'Solo Violin Spicc', bank: 0, preset: 15, sfzRelPath: 'SViolinSpic.sfz', targetVelocity: 90, zoneStride: 2 },
+    ],
+  },
+  'vsco-brass-complete': {
+    id: 'vsco-brass-complete',
+    pack: 'vsco-complete',
+    fileName: 'vsco-brass-complete.sf2',
+    bankName: 'VSCO-2 CE Brass Complete (CC0-1.0)',
+    licence: 'CC0-1.0',
+    licenceRegistryId: 'vsco-2-ce',
+    kind: 'git-sfz',
+    repoKey: 'vsco-2-ce',
+    repoUrl: 'https://github.com/sgossner/VSCO-2-CE.git',
+    branch: 'SFZ',
+    commit: '6dd651d55dde97fd4028699be9d4481f26917891',
+    licencePath: 'LICENSE',
+    licenceSha256: VSCO2_CE_LICENSE_SHA256,
+    initialSparsePaths: [
+      '/LICENSE',
+      '/FHornMute.sfz',
+      '/FHornStac.sfz',
+      '/TromboneSus.sfz',
+      '/TromboneVib.sfz',
+      '/TromboneStac.sfz',
+      '/TrumpetSus.sfz',
+      '/TrumpetSusVib.sfz',
+      '/TrumpetStraightMuteSus.sfz',
+      '/TrumpetHarmonMuteSus.sfz',
+      '/TubaSus.sfz',
+    ],
+    presets: [
+      { name: 'French Horn Muted', bank: 0, preset: 0, sfzRelPath: 'FHornMute.sfz', targetVelocity: 90 },
+      { name: 'French Horn Stacc', bank: 0, preset: 1, sfzRelPath: 'FHornStac.sfz', targetVelocity: 90, zoneStride: 2 },
+      { name: 'Trombone Sustain', bank: 0, preset: 2, sfzRelPath: 'TromboneSus.sfz', targetVelocity: 90, zoneStride: 2 },
+      { name: 'Trombone Vibrato', bank: 0, preset: 3, sfzRelPath: 'TromboneVib.sfz', targetVelocity: 90, zoneStride: 2 },
+      { name: 'Trombone Staccato', bank: 0, preset: 4, sfzRelPath: 'TromboneStac.sfz', targetVelocity: 90 },
+      { name: 'Trumpet Sustain', bank: 0, preset: 5, sfzRelPath: 'TrumpetSus.sfz', targetVelocity: 90, zoneStride: 2 },
+      { name: 'Trumpet Sus Vibrato', bank: 0, preset: 6, sfzRelPath: 'TrumpetSusVib.sfz', targetVelocity: 90, zoneStride: 2 },
+      { name: 'Trumpet Straight Mt', bank: 0, preset: 7, sfzRelPath: 'TrumpetStraightMuteSus.sfz', targetVelocity: 90 },
+      { name: 'Trumpet Harmon Mute', bank: 0, preset: 8, sfzRelPath: 'TrumpetHarmonMuteSus.sfz', targetVelocity: 90 },
+      { name: 'Tuba Sustain', bank: 0, preset: 9, sfzRelPath: 'TubaSus.sfz', targetVelocity: 90 },
+    ],
+  },
+  'vsco-winds-complete': {
+    id: 'vsco-winds-complete',
+    pack: 'vsco-complete',
+    fileName: 'vsco-winds-complete.sf2',
+    bankName: 'VSCO-2 CE Woodwinds Complete (CC0-1.0)',
+    licence: 'CC0-1.0',
+    licenceRegistryId: 'vsco-2-ce',
+    kind: 'git-sfz',
+    repoKey: 'vsco-2-ce',
+    repoUrl: 'https://github.com/sgossner/VSCO-2-CE.git',
+    branch: 'SFZ',
+    commit: '6dd651d55dde97fd4028699be9d4481f26917891',
+    licencePath: 'LICENSE',
+    licenceSha256: VSCO2_CE_LICENSE_SHA256,
+    initialSparsePaths: [
+      '/LICENSE',
+      '/BassoonSus.sfz',
+      '/BassoonVib.sfz',
+      '/BassoonStac.sfz',
+      '/ClarinetSus.sfz',
+      '/OboeSusNV.sfz',
+      '/OboeSusVib.sfz',
+      '/OboeStac.sfz',
+      '/FluteSusNV.sfz',
+      '/FluteExpVib.sfz',
+      '/PiccoloSus.sfz',
+      '/PiccoloStac.sfz',
+    ],
+    presets: [
+      { name: 'Bassoon Sustain', bank: 0, preset: 0, sfzRelPath: 'BassoonSus.sfz', targetVelocity: 90, zoneStride: 2 },
+      { name: 'Bassoon Vibrato', bank: 0, preset: 1, sfzRelPath: 'BassoonVib.sfz', targetVelocity: 90, zoneStride: 2 },
+      { name: 'Bassoon Staccato', bank: 0, preset: 2, sfzRelPath: 'BassoonStac.sfz', targetVelocity: 90, zoneStride: 2 },
+      { name: 'Clarinet Sustain', bank: 0, preset: 3, sfzRelPath: 'ClarinetSus.sfz', targetVelocity: 90, zoneStride: 2 },
+      { name: 'Oboe Sustain NonVib', bank: 0, preset: 4, sfzRelPath: 'OboeSusNV.sfz', targetVelocity: 90 },
+      { name: 'Oboe Sustain Vib', bank: 0, preset: 5, sfzRelPath: 'OboeSusVib.sfz', targetVelocity: 90 },
+      { name: 'Oboe Staccato', bank: 0, preset: 6, sfzRelPath: 'OboeStac.sfz', targetVelocity: 90 },
+      { name: 'Flute Sus Non-Vib', bank: 0, preset: 7, sfzRelPath: 'FluteSusNV.sfz', targetVelocity: 90 },
+      { name: 'Flute Espressivo', bank: 0, preset: 8, sfzRelPath: 'FluteExpVib.sfz', targetVelocity: 90 },
+      { name: 'Piccolo Sustain', bank: 0, preset: 9, sfzRelPath: 'PiccoloSus.sfz', targetVelocity: 90 },
+      { name: 'Piccolo Staccato', bank: 0, preset: 10, sfzRelPath: 'PiccoloStac.sfz', targetVelocity: 90 },
+    ],
+  },
+  'vsco-percussion-keys': {
+    id: 'vsco-percussion-keys',
+    pack: 'vsco-complete',
+    fileName: 'vsco-percussion-keys.sf2',
+    bankName: 'VSCO-2 CE Mallets, Bells, Organ & Upright Piano (CC0-1.0)',
+    licence: 'CC0-1.0',
+    licenceRegistryId: 'vsco-2-ce',
+    kind: 'git-sfz',
+    repoKey: 'vsco-2-ce',
+    repoUrl: 'https://github.com/sgossner/VSCO-2-CE.git',
+    branch: 'SFZ',
+    commit: '6dd651d55dde97fd4028699be9d4481f26917891',
+    licencePath: 'LICENSE',
+    licenceSha256: VSCO2_CE_LICENSE_SHA256,
+    initialSparsePaths: [
+      '/LICENSE',
+      '/TimpaniRolls.sfz',
+      '/TubularBells.sfz',
+      '/Glockenspiel.sfz',
+      '/Xylophone.sfz',
+      '/Marimba.sfz',
+      '/OrganLoud.sfz',
+      '/OrganLoudPedal.sfz',
+      '/OrganQuiet.sfz',
+      '/UprightPiano.sfz',
+    ],
+    presets: [
+      { name: 'Timpani Rolls', bank: 0, preset: 0, sfzRelPath: 'TimpaniRolls.sfz' },
+      { name: 'Tubular Bells', bank: 0, preset: 1, sfzRelPath: 'TubularBells.sfz' },
+      { name: 'Glockenspiel', bank: 0, preset: 2, sfzRelPath: 'Glockenspiel.sfz' },
+      { name: 'Xylophone', bank: 0, preset: 3, sfzRelPath: 'Xylophone.sfz' },
+      { name: 'Concert Marimba', bank: 0, preset: 4, sfzRelPath: 'Marimba.sfz' },
+      { name: 'Pipe Organ Loud', bank: 0, preset: 5, sfzRelPath: 'OrganLoud.sfz', zoneStride: 2 },
+      { name: 'Pipe Organ Pedal', bank: 0, preset: 6, sfzRelPath: 'OrganLoudPedal.sfz' },
+      { name: 'Pipe Organ Quiet', bank: 0, preset: 7, sfzRelPath: 'OrganQuiet.sfz', zoneStride: 2 },
+      { name: 'Vintage Upright Pno', bank: 0, preset: 8, sfzRelPath: 'UprightPiano.sfz', targetVelocity: 90, zoneStride: 2 },
+    ],
+  },
+  'vsco-orch-perc': {
+    id: 'vsco-orch-perc',
+    pack: 'vsco-complete',
+    fileName: 'vsco-orch-perc.sf2',
+    bankName: 'VSCO-2 CE Orchestral Percussion Kit (CC0-1.0)',
+    licence: 'CC0-1.0',
+    licenceRegistryId: 'vsco-2-ce',
+    kind: 'git-sfz',
+    repoKey: 'vsco-2-ce',
+    repoUrl: 'https://github.com/sgossner/VSCO-2-CE.git',
+    branch: 'SFZ',
+    commit: '6dd651d55dde97fd4028699be9d4481f26917891',
+    licencePath: 'LICENSE',
+    licenceSha256: VSCO2_CE_LICENSE_SHA256,
+    initialSparsePaths: [
+      '/LICENSE',
+      '/GM-StylePerc.sfz',
+    ],
+    presets: [
+      {
+        name: 'VSCO Orch Perc Kit',
+        bank: 128,
+        preset: 0,
+        drumMode: true,
+        hiHatChoke: false,
+        respectShortRelease: true,
+        maxOneShotReleaseSeconds: 12,
+        sfzRelPath: 'GM-StylePerc.sfz',
+      },
+    ],
+  },
 });
 
 export function targetsForPack(packName) {
+  if (packName === 'all') {
+    return Object.values(SOUNDFONT_TARGETS);
+  }
   const targets = Object.values(SOUNDFONT_TARGETS).filter(t => t.pack === packName);
   if (!targets.length) {
     throw new Error(`Unknown SoundFont pack "${packName}". Choose one of: ${PACK_NAMES.join(', ')}`);
@@ -304,11 +519,15 @@ async function verifyTextSha256(filePath, expectedSha256, label) {
 async function directoryBytes(dirPath) {
   if (!existsSync(dirPath)) return 0;
   let total = 0;
-  const entries = await readdir(dirPath, { withFileTypes: true });
+  const entries = await readdir(dirPath, { withFileTypes: true }).catch(err => (err?.code === 'ENOENT' ? [] : Promise.reject(err)));
   for (const entry of entries) {
     const full = path.join(dirPath, entry.name);
-    if (entry.isDirectory()) total += await directoryBytes(full);
-    else if (entry.isFile()) total += (await stat(full)).size;
+    if (entry.isDirectory()) {
+      total += await directoryBytes(full);
+    } else if (entry.isFile()) {
+      const info = await stat(full).catch(err => (err?.code === 'ENOENT' ? null : Promise.reject(err)));
+      if (info) total += info.size;
+    }
   }
   return total;
 }
@@ -508,6 +727,7 @@ async function installGitSfzTarget(target, { soundfontsDir, cacheDir, ffmpeg }) 
     const regions = await parseSfzArticulation(sfzFull, {
       boundaryDir: boundary,
       drumMode: Boolean(preset.drumMode || preset.bank === 128),
+      hiHatChoke: preset.hiHatChoke ?? true,
       keyFilter: preset.keyFilter,
       allowedKeys: preset.allowedKeys,
       targetVelocity: preset.targetVelocity,
@@ -569,6 +789,9 @@ async function installGitSfzTarget(target, { soundfontsDir, cacheDir, ffmpeg }) 
       bank: preset.bank,
       preset: preset.preset,
       drumMode: preset.drumMode,
+      hiHatChoke: preset.hiHatChoke ?? true,
+      respectShortRelease: preset.respectShortRelease ?? false,
+      maxOneShotReleaseSeconds: preset.maxOneShotReleaseSeconds ?? 8,
       gainBoostDb: preset.gainBoostDb ?? 0,
       sfzPath: path.join(repoDir, preset.sfzRelPath),
       boundaryDir: preset.subBoundaryRel ? path.join(repoDir, preset.subBoundaryRel) : repoDir,
@@ -605,8 +828,30 @@ async function installGitSfzTarget(target, { soundfontsDir, cacheDir, ffmpeg }) 
 }
 
 export async function loadSoundfontLock(lockPath = TRACKED_LOCK_PATH) {
-  if (!existsSync(lockPath)) return null;
-  return JSON.parse(await readFile(lockPath, 'utf8'));
+  const resolved = path.resolve(lockPath);
+  let info;
+  try {
+    info = await stat(resolved, { bigint: true });
+  } catch (err) {
+    if (err?.code === 'ENOENT') {
+      lockFileCache.delete(resolved);
+      return null;
+    }
+    throw err;
+  }
+  if (!info.isFile()) return null;
+  const stamp = `${info.mtimeNs}:${info.size}`;
+  const cached = lockFileCache.get(resolved);
+  if (cached && cached.stamp === stamp) {
+    return cached.parsed;
+  }
+  const parsed = JSON.parse(await readFile(resolved, 'utf8'));
+  lockFileCache.set(resolved, {
+    stamp,
+    mtimeMs: Number(info.mtimeMs),
+    parsed,
+  });
+  return parsed;
 }
 
 export async function installSoundfontPack({
@@ -651,6 +896,22 @@ export async function installSoundfontPack({
 
     mergedEntries[target.id] = built;
     installed.push({ ...built, reused: false });
+
+    // Persist local lock incrementally after each compiled target so interrupted multi-target runs resume cleanly.
+    const interimEntries = {};
+    for (const key of Object.keys(SOUNDFONT_TARGETS)) {
+      if (mergedEntries[key]) {
+        const cleanEntry = { ...mergedEntries[key] };
+        delete cleanEntry.reused;
+        interimEntries[key] = cleanEntry;
+      }
+    }
+    const interimLock = JSON.stringify({
+      lockVersion: 1,
+      licencePolicy: 'CC0-1.0-only',
+      soundfonts: interimEntries,
+    }, null, 2) + '\n';
+    await writeFileAtomic(localLockPath, interimLock, { overwrite: true });
   }
 
   const allReused = installed.length > 0 && installed.every(item => item.reused);
@@ -727,10 +988,10 @@ export async function installSoundfontPack({
 }
 
 export function register({ tool, z, paths, moduleGuidance }) {
-  moduleGuidance.push('Use install_soundfont_pack to download and deterministically compile verified CC0-1.0 acoustic SoundFonts (core, upright-bass, meta-piano, vsco-extended) into LMMS_SOUNDFONTS.');
+  moduleGuidance.push('Use install_soundfont_pack to download and deterministically compile verified CC0-1.0 acoustic SoundFonts (core, upright-bass, meta-piano, vsco-extended, vsco-complete, or all) into LMMS_SOUNDFONTS.');
 
   tool('install_soundfont_pack', 'Download, verify (LICENSE + SHA-256), and deterministically compile a CC0-1.0 SoundFont pack into LMMS_SOUNDFONTS.', {
-    pack: z.enum(PACK_NAMES).default('core').describe('SoundFont pack to install: core (<80 MB: upright piano, nylon/steel guitars, GM drums, orchestral strings/brass/winds/harp/timpani), upright-bass, meta-piano, or vsco-extended.'),
+    pack: z.enum(PACK_NAMES).default('core').describe('SoundFont pack to install: core (<80 MB: upright piano, nylon/steel guitars, GM drums, orchestral strings/brass/winds/harp/timpani), upright-bass, meta-piano, vsco-extended, vsco-complete (full VSCO-2-CE strings, brass, woodwinds, mallets/bells/organ/upright piano, and orchestral percussion), or all.'),
     force: z.boolean().default(false).describe('Rebuild even if verified .sf2 files already match soundfont-lock.json.'),
   }, async ({ pack, force }) => {
     const sfDir = paths?.soundfonts ?? resolveSoundfontsDir(process.env);

@@ -290,6 +290,7 @@ function coalesceKeyZones(regions, stride) {
 export async function parseSfzArticulation(sfzPath, {
   boundaryDir,
   drumMode = false,
+  hiHatChoke = true,
   keyFilter,
   allowedKeys,
   targetVelocity,
@@ -474,7 +475,7 @@ export async function parseSfzArticulation(sfzPath, {
     const sfzGroup = op.group !== undefined ? Number(op.group) : undefined;
     const sfzOffBy = op.off_by !== undefined ? Number(op.off_by) : undefined;
     let exclusiveClass;
-    if (drumMode && (lokey === 42 || lokey === 44 || lokey === 46) && lokey === hikey) {
+    if (drumMode && hiHatChoke && (lokey === 42 || lokey === 44 || lokey === 46) && lokey === hikey) {
       exclusiveClass = 1;
     } else if (Number.isInteger(sfzGroup) && sfzGroup > 0 && sfzGroup <= 127 && sfzGroup === sfzOffBy) {
       exclusiveClass = sfzGroup;
@@ -1312,6 +1313,7 @@ export async function compileSfzToSf2({
     const regions = await parseSfzArticulation(presetSpec.sfzPath, {
       boundaryDir: presetSpec.boundaryDir,
       drumMode,
+      hiHatChoke: presetSpec.hiHatChoke ?? true,
       keyFilter: presetSpec.keyFilter,
       allowedKeys: presetSpec.allowedKeys,
       targetVelocity: presetSpec.targetVelocity,
@@ -1351,7 +1353,11 @@ export async function compileSfzToSf2({
 
       let releaseSeconds = reg.ampegRelease;
       if (isOneShot) {
-        releaseSeconds = Math.max(releaseSeconds ?? 0, Math.min(8, sampleDuration + 0.1));
+        const keepShortGate = Boolean(presetSpec.respectShortRelease && releaseSeconds !== undefined && releaseSeconds < 1);
+        if (!keepShortGate) {
+          const maxOneShotRelease = presetSpec.maxOneShotReleaseSeconds ?? 8;
+          releaseSeconds = Math.max(releaseSeconds ?? 0, Math.min(maxOneShotRelease, sampleDuration + 0.1));
+        }
       }
 
       const rawStem = path.basename(reg.samplePath, path.extname(reg.samplePath));

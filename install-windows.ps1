@@ -6,7 +6,7 @@
 param(
     [string]$Workspace = "",
     [string]$SoundfontsDir = "",
-    [ValidateSet('core', 'upright-bass', 'meta-piano', 'vsco-extended')][string[]]$Packs = @('core'),
+    [ValidateSet('core', 'upright-bass', 'meta-piano', 'vsco-extended', 'vsco-complete', 'all')][string[]]$Packs = @('core'),
     [switch]$SkipUserSkill,
     [switch]$SkipGlobalMcp,
     [switch]$SkipSmokeTest

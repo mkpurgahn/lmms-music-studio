@@ -240,6 +240,8 @@ Ask your AI to run `install_soundfont_pack`, or run `.\setup-libraries-windows.p
 | `upright-bass` | `upright-bass.sf2` | 1958 Otto Rubner Double Bass Pizzicato (`bank: 0, patch: 0`) by D. Smolken |
 | `meta-piano` | `meta-piano.sf2` | Meta Open Sound Acoustic Piano (`bank: 0, patch: 0`) |
 | `vsco-extended` | `vsco-orchestra-extended.sf2` | 11 articulations (`bank: 0, patches: 0..10`): Flute Sustain Vibrato, Clarinet Staccato, Cello Ensemble Spiccato, Contrabass Spiccato, Violin Ensemble Spiccato, Violin Ensemble Tremolo, Viola Ensemble Tremolo, Trumpet Staccato, Tuba Staccato, Solo Violin Tremolo, Solo Violin Pizzicato |
+| `vsco-complete` | `vsco-strings-complete.sf2`, `vsco-brass-complete.sf2`, `vsco-winds-complete.sf2`, `vsco-percussion-keys.sf2`, `vsco-orch-perc.sf2` | 47 additional VSCO 2 CE orchestral presets: complete string sustains/quiet/tremolo/spiccato/pizzicato (`0..15`), muted/stopped/open brass (`0..9`), woodwinds from bassoon to piccolo (`0..10`), timpani rolls, tubular bells, glockenspiel, xylophone, marimba, gothic pipe organ + 32-ft pedal, vintage upright piano (`0..8`), and Bank 128 orchestral percussion (`GM-StylePerc`, MIDI `32..104`) |
+| `all` | All 12 `.sf2` banks above | Convenience alias installing `core`, `upright-bass`, `meta-piano`, `vsco-extended`, and `vsco-complete` (70 verified CC0-1.0 presets total) |
 
 ---
 

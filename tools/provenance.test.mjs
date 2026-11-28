@@ -285,6 +285,34 @@ test('verifySoundfontProvenance and assertProjectProvenance enforce soundfont-lo
     lockPath: customLockPath,
   });
   assert.equal(failedAudit.compliant, false);
+
+  // Updating soundfont-lock.json on disk reloads automatically via mtime/size check without process restart.
+  const hotSf2Bytes = makeDummySf2('Hot Installed CC0 Bank');
+  const hotSf2Path = path.join(dir, 'hot-added.sf2');
+  await writeFile(hotSf2Path, hotSf2Bytes);
+  await assert.rejects(
+    verifySoundfontProvenance(hotSf2Path, { workspaceDir: dir, soundfontsDir: dir, env: {}, lockPath: customLockPath }),
+    /rejected SoundFont/i,
+  );
+  const updatedLock = JSON.parse(await readFile(customLockPath, 'utf8'));
+  updatedLock.soundfonts['hot-added'] = {
+    id: 'hot-added',
+    pack: 'vsco-complete',
+    fileName: 'hot-added.sf2',
+    licence: 'CC0-1.0',
+    repository: 'https://github.com/sgossner/VSCO-2-CE.git',
+    commit: '6dd651d55dde97fd4028699be9d4481f26917891',
+    sf2Sha256: createHash('sha256').update(hotSf2Bytes).digest('hex'),
+  };
+  await writeFile(customLockPath, JSON.stringify(updatedLock, null, 2) + '\n');
+  const hotVerified = await verifySoundfontProvenance(hotSf2Path, {
+    workspaceDir: dir,
+    soundfontsDir: dir,
+    env: {},
+    lockPath: customLockPath,
+  });
+  assert.equal(hotVerified.verified, true);
+  assert.equal(hotVerified.source.pluginOrLibrary, 'hot-added');
 });
 
 test('Mix Desk blocks /_stock/ in strict mode and stamps user-attested-mic-take provenance on live mic takes', async t => {

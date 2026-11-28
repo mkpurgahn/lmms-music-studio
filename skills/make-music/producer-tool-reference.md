@@ -30,20 +30,138 @@ To discover existing files in an ongoing session when filenames aren't in contex
 
 ## 3. Verified CC0-1.0 Acoustic SoundFont Banks (`voice: "sf2"`)
 
-Call `list_sf2_presets` first to confirm installed banks. Core CC0-1.0 pack:
+Call `list_sf2_presets` first to confirm installed banks, or `install_soundfont_pack({ pack: "all" })` (PowerShell: `.\setup-libraries-windows.ps1 -Pack all`). Every preset below is locked by SHA-256 in `soundfont-lock.json` under `CC0-1.0`.
 
-| Instrument Sound | `sf2` | `bank` | `patch` | Notes |
+### Core, Piano, Guitar & Upright Bass Banks (`core`, `upright-bass`, `meta-piano`)
+
+| Instrument Sound | `sf2` | `bank` | `patch` | MIDI Range / Notes |
 |---|---|---|---|---|
-| Kawai Upright Piano | `"upright-piano-kw.sf2"` | `0` | `0` | Warm acoustic piano |
-| Nylon Acoustic Guitar | `"meta-guitars.sf2"` | `0` | `0` | Fingerpicked chords/arpeggios |
-| Steel Acoustic Guitar | `"meta-guitars.sf2"` | `0` | `1` | Bright acoustic strum/lead |
-| Violin Ensemble Sustain | `"vsco-orchestra-core.sf2"` | `0` | `0` | Lush orchestral strings |
-| Contrabass Sustain | `"vsco-orchestra-core.sf2"` | `0` | `1` | Bowed orchestral low end |
-| French Horn Sustain | `"vsco-orchestra-core.sf2"` | `0` | `2` | Cinematic warm brass |
-| Flute | `"vsco-orchestra-core.sf2"` | `0` | `3` | Woodwind melody/counter |
-| Concert Harp | `"vsco-orchestra-core.sf2"` | `0` | `4` | Plucks and arpeggios |
-| Orchestral Timpani | `"vsco-orchestra-core.sf2"` | `0` | `5` | Cinematic low hits |
-| Acoustic Drum Kit | `"virtuosity-drums.sf2"` | `128` | `0` | GM MIDI: Kick `36`, Snare `38`, Closed Hat `42`, Open Hat `46` (chokes!), Crash `49`, Ride `51` |
+| Kawai Upright Piano | `"upright-piano-kw.sf2"` | `0` | `0` | `21..108` — Warm acoustic upright piano |
+| Meta Acoustic Piano | `"meta-piano.sf2"` | `0` | `0` | `21..108` — Studio concert/acoustic grand piano |
+| Nylon Acoustic Guitar | `"meta-guitars.sf2"` | `0` | `0` | `40..88` — Fingerpicked chords and arpeggios |
+| Steel Acoustic Guitar | `"meta-guitars.sf2"` | `0` | `1` | `40..88` — Bright acoustic strum and lead |
+| Rubner Upright Bass Pizz | `"upright-bass.sf2"` | `0` | `0` | `28..71` — Plucked acoustic double bass |
+| Violin Ensemble Sustain | `"vsco-orchestra-core.sf2"` | `0` | `0` | `55..86` — Lush orchestral strings |
+| Contrabass Sustain | `"vsco-orchestra-core.sf2"` | `0` | `1` | `24..60` — Bowed orchestral low end (vibrato) |
+| French Horn Sustain | `"vsco-orchestra-core.sf2"` | `0` | `2` | `33..77` — Cinematic warm brass |
+| Flute Staccato | `"vsco-orchestra-core.sf2"` | `0` | `3` | `60..96` — Crisp woodwind staccato |
+| Concert Harp | `"vsco-orchestra-core.sf2"` | `0` | `4` | `24..103` — Orchestral plucks and glissandi |
+| Orchestral Timpani | `"vsco-orchestra-core.sf2"` | `0` | `5` | `36..60` — Tuned single timpani strikes |
+| Virtuosity Drum Kit GM | `"virtuosity-drums.sf2"` | `128` | `0` | Kick `36`, Snare `38`, Closed Hat `42`, Open Hat `46` (chokes), Crash `49`, Ride `51` |
+
+### VSCO-2-CE Extended Bank (`vsco-orchestra-extended.sf2`, `bank: 0`)
+
+| `patch` | Preset Name | MIDI Range | Character |
+|---|---|---|---|
+| `0` | Flute Sustain Vibrato | `60..96` | Lyrical solo flute |
+| `1` | Clarinet Staccato | `50..90` | Agile woodwind staccato |
+| `2` | Cello Ensemble Spiccato | `36..77` | Driving low-string ostinato |
+| `3` | Contrabass Spiccato | `24..60` | Heavy bowed bass ostinato |
+| `4` | Violin Ensemble Spiccato | `55..86` | Crisp upper-string ostinato |
+| `5` | Violin Ensemble Tremolo | `55..86` | Suspense high-string shimmer |
+| `6` | Viola Ensemble Tremolo | `48..86` | Dark mid-register cluster tremolo |
+| `7` | Trumpet Staccato | `52..84` | Heroic or sharp brass stabs |
+| `8` | Tuba Staccato | `29..62` | Short sub-brass rhythmic punches |
+| `9` | Solo Violin Tremolo | `55..96` | Fragile, tense bridge-edge solo tremolo |
+| `10` | Solo Violin Pizzicato | `55..96` | Intimate plucked solo violin |
+
+### VSCO-2-CE Complete Strings (`vsco-strings-complete.sf2`, `bank: 0`)
+
+| `patch` | Preset Name | MIDI Range | Character |
+|---|---|---|---|
+| `0` | `Contrabass Tremolo` | `24..60` | Subterranean bowed bass shudder |
+| `1` | `Contrabass Pizz` | `24..60` | Deep orchestral bass pluck |
+| `2` | `Contrabass Non-Vib` | `24..60` | Cold, lifeless horror pedal drone |
+| `3` | `Cello Ens Tremolo` | `36..77` | Dark turbulent low-mid tremolo |
+| `4` | `Cello Ens Sustain` | `36..77` | Rich expressive cello section |
+| `5` | `Cello Ens Quiet` | `36..77` | Ghostly `pp` cello section whisper |
+| `6` | `Cello Ens Pizzicato` | `36..77` | Ensemble cello plucks |
+| `7` | `Viola Ens Sustain` | `48..86` | Warm dark inner-voice strings |
+| `8` | `Viola Ens Quiet` | `48..86` | Hushed `pp` viola section |
+| `9` | `Viola Ens Spiccato` | `48..86` | Mid-string rhythmic bowing |
+| `10` | `Viola Ens Pizzicato` | `48..86` | Ensemble viola plucks |
+| `11` | `Violin Ens Quiet` | `55..86` | Fragile `pp` high-string veil |
+| `12` | `Violin Ens Pizz` | `55..86` | Ensemble violin plucks |
+| `13` | `Solo Violin Vibrato` | `55..96` | Expressive solo violin lead |
+| `14` | `Solo Violin Quiet` | `55..96` | Haunting `pp` solo violin |
+| `15` | `Solo Violin Spicc` | `55..96` | Crisp solo violin spiccato |
+
+### VSCO-2-CE Complete Brass (`vsco-brass-complete.sf2`, `bank: 0`)
+
+| `patch` | Preset Name | MIDI Range | Character |
+|---|---|---|---|
+| `0` | `French Horn Muted` | `46..77` | Stopped/muted horror horn snarl |
+| `1` | `French Horn Stacc` | `33..77` | Short horn attacks |
+| `2` | `Trombone Sustain` | `34..65` | Noble/menacing tenor trombone |
+| `3` | `Trombone Vibrato` | `41..67` | Soloistic vibrato trombone |
+| `4` | `Trombone Staccato` | `34..70` | Tight low-brass punches |
+| `5` | `Trumpet Sustain` | `52..84` | Pure open concert trumpet |
+| `6` | `Trumpet Sus Vibrato` | `52..84` | Expressive vibrato trumpet |
+| `7` | `Trumpet Straight Mt` | `58..84` | Razor-sharp straight-mute horror brass |
+| `8` | `Trumpet Harmon Mute` | `58..84` | Noir / eerie metallic harmon mute |
+| `9` | `Tuba Sustain` | `29..62` | Massive sub-brass foundation |
+
+### VSCO-2-CE Complete Woodwinds (`vsco-winds-complete.sf2`, `bank: 0`)
+
+| `patch` | Preset Name | MIDI Range | Character |
+|---|---|---|---|
+| `0` | `Bassoon Sustain` | `34..75` | Hollow dark double-reed bass/tenor |
+| `1` | `Bassoon Vibrato` | `36..72` | Plaintive solo bassoon |
+| `2` | `Bassoon Staccato` | `34..72` | Dry skeletal woodwind pulse |
+| `3` | `Clarinet Sustain` | `50..90` | Woody chalumeau-to-clarion sustain |
+| `4` | `Oboe Sustain NonVib` | `58..89` | Stark,frozen pastoral/horror reed |
+| `5` | `Oboe Sustain Vib` | `58..89` | Singing solo oboe |
+| `6` | `Oboe Staccato` | `58..89` | Pointed oboe staccato |
+| `7` | `Flute Sus Non-Vib` | `60..96` | Cold breathy non-vibrato flute |
+| `8` | `Flute Espressivo` | `60..96` | Swelling expressive vibrato flute |
+| `9` | `Piccolo Sustain` | `67..91` | Piercing upper-register wind |
+| `10` | `Piccolo Staccato` | `70..94` | Crisp high woodwind sparks |
+
+### VSCO-2-CE Mallets, Bells, Pipe Organ & Upright (`vsco-percussion-keys.sf2`, `bank: 0`)
+
+| `patch` | Preset Name | MIDI Range | Character |
+|---|---|---|---|
+| `0` | `Timpani Rolls` | `36..60` | Recorded timpani rolls (`vel <= 80` soft, `vel >= 81` crescendo) |
+| `1` | `Tubular Bells` | `60..79` | Cathedral / funeral chimes |
+| `2` | `Glockenspiel` | `67..96` | Eerie horror music-box bells |
+| `3` | `Xylophone` | `55..96` | Skeletal dry wooden mallets |
+| `4` | `Concert Marimba` | `41..96` | Warm resonant rosewood bars |
+| `5` | `Pipe Organ Loud` | `36..96` | Full gothic cathedral manuals |
+| `6` | `Pipe Organ Pedal` | `36..66` | 32-ft shuddering sub-organ pedalboard |
+| `7` | `Pipe Organ Quiet` | `36..96` | Hushed chapel flue pipes |
+| `8` | `Vintage Upright Pno` | `21..108` | Intimate character upright piano |
+
+### VSCO-2-CE Orchestral & Horror Percussion (`vsco-orch-perc.sf2`, `bank: 128`, `patch: 0`)
+
+| MIDI Note(s) | Orchestral / Horror Instrument | Velocity / Articulation Notes |
+|---|---|---|
+| `32, 33, 34, 35` | Concert Bass Drum Friction Rubs 1-4 | Superball horror groan on Gran Cassa skin |
+| `36` | Concert Bass Drum / Gran Cassa Hit | 7 velocity layers (`pp` rumble to `fff` cannon) |
+| `37` | Orchestral Snare Taps | 4 velocity layers (`pp..ff`) |
+| `38` | Orchestral Snare Hit (Snares On) | 5 velocity layers (`pp..fff`) |
+| `39` | Orchestral Snare Roll (Snares On) | 3 velocity layers; gates cleanly on MIDI note-off |
+| `40` | Orchestral Snare Hit (Snares Off) | 4 velocity layers (tom/field-drum tone) |
+| `41` | Orchestral Snare Roll (Snares Off) | 3 velocity layers; gates cleanly on MIDI note-off |
+| `42` | Gong / Tam-Tam Scrape | 2 velocity layers (`pp` / `mf` metal scrape; non-choking) |
+| `46` | Tam-Tam / Large Gong Hit | 4 velocity layers (`p`, `mf`, `f`, `fff`; 8s+ ring; non-choking) |
+| `47, 48, 50` | Suspended Cymbal Crescendo Rolls | `47` Short, `48` Medium, `50` Long swell |
+| `49` | Piatti / Concert Crash Cymbal | 4 velocity layers (`pp..ff`) |
+| `51` | Suspended Cymbal Mallet Hit | 4 velocity layers (`pp..fff`) |
+| `53, 54, 55` | Orchestral Tambourine | `53` Shake, `54` Hit, `55` Gated Roll |
+| `56` | Cowbell Hit | 4 velocity layers |
+| `59` | Suspended Cymbal Stick Hit | 4 velocity layers (`pp..fff`) |
+| `60..65` | Quinto (`60,61`), Conga (`62,63`), Tumba (`64,65`) | Tap + 3-velocity Open Hit |
+| `67` | Anvil Hit | 3 velocity layers (industrial metallic strike) |
+| `68` | Brake Drum Hammer | 3 velocity layers (piercing steel strike) |
+| `69, 70, 71` | Orchestral Ratchet | `69` Single Crank, `70` Fast Roll, `71` Slow Roll |
+| `72, 75` | Guiro Hit (`72`), Claves Hit (`75`) | Dry wood percussion |
+| `76, 77` | Log Drum High (`76`) & Low (`77`) | 3 velocity layers each (hollow wood) |
+| `78..81` | Triangles 3-in (`78,79`) & 6-in (`80,81`) | Muted (`78,80`) and Open (`79,81`) |
+| `82` | Sleighbells | Metallic cluster shake |
+| `83, 84, 85, 86` | Bell Tree Strokes 1-4 | Shimmering metallic glissando cascades |
+| `88` | Bowed Metallic Alien FX | 2 velocity layers (`pp` / `ff` horror shriek) |
+| `94` | Vibraslap Ring | Skeletal jawbone rattle |
+| `101, 102, 103, 104` | Bowed Suspended Cymbal 1-4 | Authentic bowed-cymbal horror screeches |
 
 Pure-synthesis voices (`voice`): `"pluck"`, `"bass"`, `"pad"`, `"kick"`, `"snare"`, `"hat"`, `"clap"`, or `"preset"` (from `search_sounds`).
 Drum kits (`create_drum_kit`): `"tight-synth"`, `"house-synth"`, `"electro-synth"`, `"808-synth"`, `"acoustic-cc0"`.
@@ -222,6 +340,55 @@ Note: Keep `rubato: 0` and `finalRitardando: 0` on `shape_performance` whenever 
     ]
   }
 }
+```
+
+### Physical-Modeled Cinema Horror Sound Design (`render_cinema_fx` / `tools/cinema-fx.mjs`)
+Synthesizes 48 kHz stereo zero-DC WAVs with automatic `pure-synthesis` `.provenance.json` sidecars (ready for `voice: "sample"` tracks in `create_project` / `add_track`, or placed directly via `place`):
+- `kind: "waterphone"`: 24-36 high-Q stainless-steel modes (`190-4800 Hz`), asymmetric water-slosh bend (`sloshDepthCents`), stick-slip bow friction (`bowPressure`), stereo cavern FDN (`cavernMix`).
+- `kind: "heartbeat_arc"`: Physical skin-membrane `lub-dub` (`42-58 Hz` `membraneHz` + subtle `valveClick`) accelerating smoothly from `startBpm` to `endBpm` (`curve: "exponential" | "linear" | "panic"`).
+- `kind: "dread_riser"`: Layered 16-voice bowed-metal/sul-ponticello cluster + torsional `baseHz` sub-growl + resonant pipe breath (zero white-noise EDM sweep) building to a razor-clean cutoff (`cutoffTailMs`) at `durationSeconds`.
+- `kind: "seismic_impact"`: Concert Gran-Cassa + 24-mode delayed-bloom Tam-Tam (`tamTamLevel`) + `34 Hz` seismic sub boom (`subHz`) with natural dark hall decay (`hallDecay`).
+
+```json
+{
+  "tool": "render_cinema_fx",
+  "arguments": {
+    "kind": "waterphone",
+    "output": "act1-waterphone-v1.wav",
+    "durationSeconds": 8,
+    "modeCount": 30,
+    "sloshDepthCents": 68,
+    "bowPressure": 0.72,
+    "seed": 1337
+  }
+}
+```
+```json
+{
+  "tool": "render_cinema_fx",
+  "arguments": {
+    "kind": "heartbeat_arc",
+    "output": "act3-heartbeat-v1.wav",
+    "durationSeconds": 16,
+    "startBpm": 66,
+    "endBpm": 162,
+    "curve": "exponential",
+    "membraneHz": 48,
+    "place": {
+      "project": "cathedral-dread-v1.mmp",
+      "output": "cathedral-dread-v2.mmp",
+      "bar": 16,
+      "trackName": "Heartbeat Arc",
+      "role": "fx",
+      "volume": 92
+    }
+  }
+}
+```
+Direct CLI fallback (writes to `LMMS_WORKSPACE` + `.provenance.json`):
+```powershell
+node tools\cinema-fx.mjs --kind dread_riser --output act3-riser-v1.wav --duration 8 --baseHz 46.25 --riseSemitones 13
+node tools\cinema-fx.mjs --kind seismic_impact --output act4-impact-v1.wav --duration 6 --subHz 34 --tamTamLevel 0.72
 ```
 
 ### Lint, Render, Measure, & Audit

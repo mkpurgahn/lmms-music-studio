@@ -364,18 +364,26 @@ export async function writeDerivedAudioProvenance(outputFilePath, inputChecks, {
 
 async function loadApprovedCc0SoundfontEntries({ soundfontsDir, lockPath = TRACKED_LOCK_PATH } = {}) {
   const tracked = await loadSoundfontLock(lockPath).catch(() => null);
-  const entriesById = new Map();
+  const seenKeys = new Set();
+  const approved = [];
+
+  const pushApproved = (id, entry) => {
+    const sha = String(entry.sf2Sha256).toLowerCase();
+    const dedupKey = `${id}:${sha}`;
+    if (seenKeys.has(dedupKey)) return;
+    seenKeys.add(dedupKey);
+    approved.push(entry);
+  };
 
   for (const [id, entry] of Object.entries(tracked?.soundfonts ?? {})) {
     if (entry && entry.licence === 'CC0-1.0' && typeof entry.sf2Sha256 === 'string' && /^[0-9a-f]{64}$/i.test(entry.sf2Sha256)) {
-      entriesById.set(id, entry);
+      pushApproved(id, entry);
     }
   }
 
   if (soundfontsDir && lockPath === TRACKED_LOCK_PATH) {
     const localLock = await loadSoundfontLock(path.join(soundfontsDir, 'soundfont-lock.json')).catch(() => null);
     for (const [id, entry] of Object.entries(localLock?.soundfonts ?? {})) {
-      if (entriesById.has(id)) continue;
       const target = SOUNDFONT_TARGETS[id];
       if (!target || target.licence !== 'CC0-1.0' || entry?.licence !== 'CC0-1.0') continue;
       if (entry.fileName !== target.fileName) continue;
@@ -383,12 +391,12 @@ async function loadApprovedCc0SoundfontEntries({ soundfontsDir, lockPath = TRACK
       if (target.commit && entry.commit !== target.commit) continue;
       if (target.licenceSha256 && entry.licenceSha256 !== target.licenceSha256) continue;
       if (typeof entry.sf2Sha256 === 'string' && /^[0-9a-f]{64}$/i.test(entry.sf2Sha256)) {
-        entriesById.set(id, entry);
+        pushApproved(id, entry);
       }
     }
   }
 
-  return [...entriesById.values()];
+  return approved;
 }
 
 function resolveCandidateSf2OnDisk(rawSrc, { workspaceDir, soundfontsDir }) {

@@ -215,3 +215,58 @@ test('compileSfzToSf2 writes deterministic RIFF sfbk 2.01 with 46 guard samples,
   // Verify buildSf2Buffer validates empty input cleanly.
   assert.throws(() => buildSf2Buffer({ presets: [] }), /at least one preset/);
 });
+
+test('compileSfzToSf2 supports hiHatChoke=false and respectShortRelease=true for orchestral percussion banks', async t => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'lmms-sf2-orchperc-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+
+  const gongScrapeWav = path.join(dir, 'gongscrape.wav');
+  const gongHitWav = path.join(dir, 'gonghit.wav');
+  const snareRollWav = path.join(dir, 'snareroll.wav');
+
+  await writeFile(gongScrapeWav, makeSineWav(48000, 420, 1.2, false));
+  await writeFile(gongHitWav, makeSineWav(48000, 110, 1.5, false));
+  await writeFile(snareRollWav, makeSineWav(48000, 280, 1.5, false));
+
+  const orchSfz = path.join(dir, 'orch-perc.sfz');
+  await writeFile(orchSfz, [
+    '<global> ampeg_release=3',
+    '<region> lokey=39 hikey=39 pitch_keycenter=39 ampeg_release=0.3 sample=snareroll.wav',
+    '<region> lokey=42 hikey=42 pitch_keycenter=42 ampeg_release=8 sample=gongscrape.wav',
+    '<region> lokey=46 hikey=46 pitch_keycenter=46 ampeg_release=8 sample=gonghit.wav',
+  ].join('\n'));
+
+  const compiled = await compileSfzToSf2({
+    bankName: 'Orch Perc Fixture',
+    presets: [{
+      name: 'VSCO Orch Perc Kit',
+      bank: 128,
+      preset: 0,
+      drumMode: true,
+      hiHatChoke: false,
+      respectShortRelease: true,
+      maxOneShotReleaseSeconds: 12,
+      sfzPath: orchSfz,
+      boundaryDir: dir,
+    }],
+  });
+
+  const parsed = parseSf2Buffer(compiled.buffer);
+  const inst = parsed.instruments[0];
+  assert.equal(inst.zones.length, 3);
+
+  const zone39 = inst.zones.find(z => z.generators[0].lo === 39);
+  const zone42 = inst.zones.find(z => z.generators[0].lo === 42);
+  const zone46 = inst.zones.find(z => z.generators[0].lo === 46);
+
+  // Neither gong scrape (42) nor tam-tam hit (46) is assigned hi-hat exclusiveClass=1.
+  assert.equal(zone42.generators.find(g => g.oper === SF2_GENERATORS.exclusiveClass), undefined);
+  assert.equal(zone46.generators.find(g => g.oper === SF2_GENERATORS.exclusiveClass), undefined);
+
+  // Snare roll (39) preserves its explicit 0.3s short release (< 0 timecents) instead of extending to sample duration.
+  const rel39 = zone39.generators.find(g => g.oper === SF2_GENERATORS.releaseVolEnv);
+  const rel46 = zone46.generators.find(g => g.oper === SF2_GENERATORS.releaseVolEnv);
+  assert.ok(rel39.i16 < 0, `Expected 0.3s release (< 0 timecents) on snare roll, got ${rel39.i16}`);
+  assert.ok(rel46.i16 > 3000, `Expected ~8s release (> 3000 timecents) on tam-tam hit, got ${rel46.i16}`);
+});
+

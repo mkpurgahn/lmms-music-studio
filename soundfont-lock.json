@@ -126,6 +126,464 @@
           "preset": 5
         }
       ]
+    },
+    "upright-bass": {
+      "id": "upright-bass",
+      "pack": "upright-bass",
+      "fileName": "upright-bass.sf2",
+      "licence": "CC0-1.0",
+      "licenceRegistryId": "dsmolken-double-bass",
+      "sourceType": "git-sfz",
+      "repository": "https://github.com/sfzinstruments/dsmolken.double-bass.git",
+      "commit": "c2985eb647109d2a8f30a70071e3e163339d7396",
+      "licenceSha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
+      "sourceSampleBytes": 15903028,
+      "gitObjectsBytes": 14583768,
+      "inputSampleCount": 14,
+      "aggregateSampleSha256": "0752c7a4940220ccd2586d24602e9a7ef31bf1b4e1e866cbd18399d0a41a4106",
+      "sf2Sha256": "91cb8d37b0433e7fbda5a972e7494ba2ff52008f103fce00607d5d05108c2459",
+      "sf2Bytes": 7934632,
+      "presets": [
+        {
+          "name": "Upright Bass Pizzicato",
+          "bank": 0,
+          "preset": 0
+        }
+      ]
+    },
+    "meta-piano": {
+      "id": "meta-piano",
+      "pack": "meta-piano",
+      "fileName": "meta-piano.sf2",
+      "licence": "CC0-1.0",
+      "licenceRegistryId": "meta-open-sound",
+      "sourceType": "git-sfz",
+      "repository": "https://github.com/facebookincubator/Meta-open-sound.git",
+      "commit": "514c926efecdb3c7812bf00eedf8e5c8d61dd681",
+      "licenceSha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
+      "sourceSampleBytes": 48209079,
+      "gitObjectsBytes": 64008133,
+      "inputSampleCount": 352,
+      "aggregateSampleSha256": "a43cf36191ea0035333443e2bd57e26d5287a1ba0e93a86a18aa4fcdc468afe7",
+      "sf2Sha256": "0ff497cfcc63ea8ffbde86035db8caa47a4ff0911c8a86fcaccf0bb7deece9e2",
+      "sf2Bytes": 295525338,
+      "presets": [
+        {
+          "name": "Meta Acoustic Piano",
+          "bank": 0,
+          "preset": 0
+        }
+      ]
+    },
+    "vsco-orchestra-extended": {
+      "id": "vsco-orchestra-extended",
+      "pack": "vsco-extended",
+      "fileName": "vsco-orchestra-extended.sf2",
+      "licence": "CC0-1.0",
+      "licenceRegistryId": "vsco-2-ce",
+      "sourceType": "git-sfz",
+      "repository": "https://github.com/sgossner/VSCO-2-CE.git",
+      "branch": "SFZ",
+      "commit": "6dd651d55dde97fd4028699be9d4481f26917891",
+      "licenceSha256": "4d2eef679d5faf924534bcc132646322e9a852ce50ae5616694e0b95f7b8275d",
+      "sourceSampleBytes": 54392984,
+      "gitObjectsBytes": 76682814,
+      "inputSampleCount": 75,
+      "aggregateSampleSha256": "15b406cf99ad676303b2dbc9ef0fc1a1b1fbf7bcca936a62f5c635e28c6745e2",
+      "sf2Sha256": "87e5ca10b4b1f462cc2ff762d41369fa7ba30b64863830bbd08993ef48dc36ea",
+      "sf2Bytes": 49675072,
+      "presets": [
+        {
+          "name": "Flute Sustain Vibrato",
+          "bank": 0,
+          "preset": 0
+        },
+        {
+          "name": "Clarinet Staccato",
+          "bank": 0,
+          "preset": 1
+        },
+        {
+          "name": "Cello Ensemble Spiccato",
+          "bank": 0,
+          "preset": 2
+        },
+        {
+          "name": "Contrabass Spiccato",
+          "bank": 0,
+          "preset": 3
+        },
+        {
+          "name": "Violin Ensemble Spiccato",
+          "bank": 0,
+          "preset": 4
+        },
+        {
+          "name": "Violin Ensemble Tremolo",
+          "bank": 0,
+          "preset": 5
+        },
+        {
+          "name": "Viola Ensemble Tremolo",
+          "bank": 0,
+          "preset": 6
+        },
+        {
+          "name": "Trumpet Staccato",
+          "bank": 0,
+          "preset": 7
+        },
+        {
+          "name": "Tuba Staccato",
+          "bank": 0,
+          "preset": 8
+        },
+        {
+          "name": "Solo Violin Tremolo",
+          "bank": 0,
+          "preset": 9
+        },
+        {
+          "name": "Solo Violin Pizzicato",
+          "bank": 0,
+          "preset": 10
+        }
+      ]
+    },
+    "vsco-strings-complete": {
+      "id": "vsco-strings-complete",
+      "pack": "vsco-complete",
+      "fileName": "vsco-strings-complete.sf2",
+      "licence": "CC0-1.0",
+      "licenceRegistryId": "vsco-2-ce",
+      "sourceType": "git-sfz",
+      "repository": "https://github.com/sgossner/VSCO-2-CE.git",
+      "branch": "SFZ",
+      "commit": "6dd651d55dde97fd4028699be9d4481f26917891",
+      "licenceSha256": "4d2eef679d5faf924534bcc132646322e9a852ce50ae5616694e0b95f7b8275d",
+      "sourceSampleBytes": 185866646,
+      "gitObjectsBytes": 1078380918,
+      "inputSampleCount": 112,
+      "aggregateSampleSha256": "07778092fe6eee3140be1b276bc7b797445fc89c2ba67eaa0bb04cf74f75a987",
+      "sf2Sha256": "120649d03aca5d0b5eae3694b283c457c8e994ca908f8400f9c032ad8f1482e4",
+      "sf2Bytes": 152327418,
+      "presets": [
+        {
+          "name": "Contrabass Tremolo",
+          "bank": 0,
+          "preset": 0
+        },
+        {
+          "name": "Contrabass Pizz",
+          "bank": 0,
+          "preset": 1
+        },
+        {
+          "name": "Contrabass Non-Vib",
+          "bank": 0,
+          "preset": 2
+        },
+        {
+          "name": "Cello Ens Tremolo",
+          "bank": 0,
+          "preset": 3
+        },
+        {
+          "name": "Cello Ens Sustain",
+          "bank": 0,
+          "preset": 4
+        },
+        {
+          "name": "Cello Ens Quiet",
+          "bank": 0,
+          "preset": 5
+        },
+        {
+          "name": "Cello Ens Pizzicato",
+          "bank": 0,
+          "preset": 6
+        },
+        {
+          "name": "Viola Ens Sustain",
+          "bank": 0,
+          "preset": 7
+        },
+        {
+          "name": "Viola Ens Quiet",
+          "bank": 0,
+          "preset": 8
+        },
+        {
+          "name": "Viola Ens Spiccato",
+          "bank": 0,
+          "preset": 9
+        },
+        {
+          "name": "Viola Ens Pizzicato",
+          "bank": 0,
+          "preset": 10
+        },
+        {
+          "name": "Violin Ens Quiet",
+          "bank": 0,
+          "preset": 11
+        },
+        {
+          "name": "Violin Ens Pizz",
+          "bank": 0,
+          "preset": 12
+        },
+        {
+          "name": "Solo Violin Vibrato",
+          "bank": 0,
+          "preset": 13
+        },
+        {
+          "name": "Solo Violin Quiet",
+          "bank": 0,
+          "preset": 14
+        },
+        {
+          "name": "Solo Violin Spicc",
+          "bank": 0,
+          "preset": 15
+        }
+      ]
+    },
+    "vsco-brass-complete": {
+      "id": "vsco-brass-complete",
+      "pack": "vsco-complete",
+      "fileName": "vsco-brass-complete.sf2",
+      "licence": "CC0-1.0",
+      "licenceRegistryId": "vsco-2-ce",
+      "sourceType": "git-sfz",
+      "repository": "https://github.com/sgossner/VSCO-2-CE.git",
+      "branch": "SFZ",
+      "commit": "6dd651d55dde97fd4028699be9d4481f26917891",
+      "licenceSha256": "4d2eef679d5faf924534bcc132646322e9a852ce50ae5616694e0b95f7b8275d",
+      "sourceSampleBytes": 63327620,
+      "gitObjectsBytes": 1084606461,
+      "inputSampleCount": 70,
+      "aggregateSampleSha256": "1afd24b9ea184df67780448ce4b94ae4746afd6d1c8f0c9f83b08ea086cfb47b",
+      "sf2Sha256": "a6263a90f5222504fb892833094b6a3c3acea97632ff78c2de6cc6b3d64933de",
+      "sf2Bytes": 63348844,
+      "presets": [
+        {
+          "name": "French Horn Muted",
+          "bank": 0,
+          "preset": 0
+        },
+        {
+          "name": "French Horn Stacc",
+          "bank": 0,
+          "preset": 1
+        },
+        {
+          "name": "Trombone Sustain",
+          "bank": 0,
+          "preset": 2
+        },
+        {
+          "name": "Trombone Vibrato",
+          "bank": 0,
+          "preset": 3
+        },
+        {
+          "name": "Trombone Staccato",
+          "bank": 0,
+          "preset": 4
+        },
+        {
+          "name": "Trumpet Sustain",
+          "bank": 0,
+          "preset": 5
+        },
+        {
+          "name": "Trumpet Sus Vibrato",
+          "bank": 0,
+          "preset": 6
+        },
+        {
+          "name": "Trumpet Straight Mt",
+          "bank": 0,
+          "preset": 7
+        },
+        {
+          "name": "Trumpet Harmon Mute",
+          "bank": 0,
+          "preset": 8
+        },
+        {
+          "name": "Tuba Sustain",
+          "bank": 0,
+          "preset": 9
+        }
+      ]
+    },
+    "vsco-winds-complete": {
+      "id": "vsco-winds-complete",
+      "pack": "vsco-complete",
+      "fileName": "vsco-winds-complete.sf2",
+      "licence": "CC0-1.0",
+      "licenceRegistryId": "vsco-2-ce",
+      "sourceType": "git-sfz",
+      "repository": "https://github.com/sgossner/VSCO-2-CE.git",
+      "branch": "SFZ",
+      "commit": "6dd651d55dde97fd4028699be9d4481f26917891",
+      "licenceSha256": "4d2eef679d5faf924534bcc132646322e9a852ce50ae5616694e0b95f7b8275d",
+      "sourceSampleBytes": 120214046,
+      "gitObjectsBytes": 1089828261,
+      "inputSampleCount": 82,
+      "aggregateSampleSha256": "8bb07f3b75f9fe29d2dde1c3275b9872e3b5ea6af1edad3bf3c7835967044854",
+      "sf2Sha256": "c45829d266338b36b338f166a7ee2aa5015238fa8aa7d76f7b63ce7c978c9592",
+      "sf2Bytes": 99195756,
+      "presets": [
+        {
+          "name": "Bassoon Sustain",
+          "bank": 0,
+          "preset": 0
+        },
+        {
+          "name": "Bassoon Vibrato",
+          "bank": 0,
+          "preset": 1
+        },
+        {
+          "name": "Bassoon Staccato",
+          "bank": 0,
+          "preset": 2
+        },
+        {
+          "name": "Clarinet Sustain",
+          "bank": 0,
+          "preset": 3
+        },
+        {
+          "name": "Oboe Sustain NonVib",
+          "bank": 0,
+          "preset": 4
+        },
+        {
+          "name": "Oboe Sustain Vib",
+          "bank": 0,
+          "preset": 5
+        },
+        {
+          "name": "Oboe Staccato",
+          "bank": 0,
+          "preset": 6
+        },
+        {
+          "name": "Flute Sus Non-Vib",
+          "bank": 0,
+          "preset": 7
+        },
+        {
+          "name": "Flute Espressivo",
+          "bank": 0,
+          "preset": 8
+        },
+        {
+          "name": "Piccolo Sustain",
+          "bank": 0,
+          "preset": 9
+        },
+        {
+          "name": "Piccolo Staccato",
+          "bank": 0,
+          "preset": 10
+        }
+      ]
+    },
+    "vsco-percussion-keys": {
+      "id": "vsco-percussion-keys",
+      "pack": "vsco-complete",
+      "fileName": "vsco-percussion-keys.sf2",
+      "licence": "CC0-1.0",
+      "licenceRegistryId": "vsco-2-ce",
+      "sourceType": "git-sfz",
+      "repository": "https://github.com/sgossner/VSCO-2-CE.git",
+      "branch": "SFZ",
+      "commit": "6dd651d55dde97fd4028699be9d4481f26917891",
+      "licenceSha256": "4d2eef679d5faf924534bcc132646322e9a852ce50ae5616694e0b95f7b8275d",
+      "sourceSampleBytes": 194971700,
+      "gitObjectsBytes": 1096423958,
+      "inputSampleCount": 83,
+      "aggregateSampleSha256": "f532d364f771fc7518c4b120b5ef7db0585fc88ab2105ef9d782c42e94553f39",
+      "sf2Sha256": "4ab02636ef06b6a9fdbabef259adade22d61a26e5bd111a4ba8a36e3d53f7019",
+      "sf2Bytes": 174562962,
+      "presets": [
+        {
+          "name": "Timpani Rolls",
+          "bank": 0,
+          "preset": 0
+        },
+        {
+          "name": "Tubular Bells",
+          "bank": 0,
+          "preset": 1
+        },
+        {
+          "name": "Glockenspiel",
+          "bank": 0,
+          "preset": 2
+        },
+        {
+          "name": "Xylophone",
+          "bank": 0,
+          "preset": 3
+        },
+        {
+          "name": "Concert Marimba",
+          "bank": 0,
+          "preset": 4
+        },
+        {
+          "name": "Pipe Organ Loud",
+          "bank": 0,
+          "preset": 5
+        },
+        {
+          "name": "Pipe Organ Pedal",
+          "bank": 0,
+          "preset": 6
+        },
+        {
+          "name": "Pipe Organ Quiet",
+          "bank": 0,
+          "preset": 7
+        },
+        {
+          "name": "Vintage Upright Pno",
+          "bank": 0,
+          "preset": 8
+        }
+      ]
+    },
+    "vsco-orch-perc": {
+      "id": "vsco-orch-perc",
+      "pack": "vsco-complete",
+      "fileName": "vsco-orch-perc.sf2",
+      "licence": "CC0-1.0",
+      "licenceRegistryId": "vsco-2-ce",
+      "sourceType": "git-sfz",
+      "repository": "https://github.com/sgossner/VSCO-2-CE.git",
+      "branch": "SFZ",
+      "commit": "6dd651d55dde97fd4028699be9d4481f26917891",
+      "licenceSha256": "4d2eef679d5faf924534bcc132646322e9a852ce50ae5616694e0b95f7b8275d",
+      "sourceSampleBytes": 113131542,
+      "gitObjectsBytes": 1209926598,
+      "inputSampleCount": 112,
+      "aggregateSampleSha256": "1f57279d68b5e3294fd8c023d6f637f80f012b33ea3c4eb1e9742c55b287066f",
+      "sf2Sha256": "f860cef65b515bf69c8a8446995026b06aec610563019d0f38766e60cba9dcec",
+      "sf2Bytes": 107137298,
+      "presets": [
+        {
+          "name": "VSCO Orch Perc Kit",
+          "bank": 128,
+          "preset": 0
+        }
+      ]
     }
   }
 }

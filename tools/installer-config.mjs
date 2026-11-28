@@ -24,6 +24,27 @@ export const PACK_TARGET_IDS = Object.freeze({
   'upright-bass': Object.freeze(['upright-bass']),
   'meta-piano': Object.freeze(['meta-piano']),
   'vsco-extended': Object.freeze(['vsco-orchestra-extended']),
+  'vsco-complete': Object.freeze([
+    'vsco-strings-complete',
+    'vsco-brass-complete',
+    'vsco-winds-complete',
+    'vsco-percussion-keys',
+    'vsco-orch-perc',
+  ]),
+  all: Object.freeze([
+    'upright-piano-kw',
+    'meta-guitars',
+    'virtuosity-drums',
+    'vsco-orchestra-core',
+    'upright-bass',
+    'meta-piano',
+    'vsco-orchestra-extended',
+    'vsco-strings-complete',
+    'vsco-brass-complete',
+    'vsco-winds-complete',
+    'vsco-percussion-keys',
+    'vsco-orch-perc',
+  ]),
 });
 
 function isPlainObject(value) {

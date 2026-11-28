@@ -8,10 +8,12 @@
 #   upright-bass  Rubner Double Bass pizzicato (dsmolken.double-bass, CC0-1.0)
 #   meta-piano    Meta Open Sound Acoustic Piano (CC0-1.0)
 #   vsco-extended Extended VSCO 2 CE articulations (CC0-1.0)
+#   vsco-complete Complete VSCO 2 CE strings, brass, winds, mallets/organ/piano, and orchestral percussion (CC0-1.0)
+#   all           Convenience alias installing every verified CC0-1.0 pack
 #
 # Usage: ./setup-libraries-windows.ps1 [-Pack core] [-Destination <soundfontsFolder>] [-Force] [-UpdateLock]
 param(
-    [ValidateSet('core', 'upright-bass', 'meta-piano', 'vsco-extended')][string[]]$Pack = @('core'),
+    [ValidateSet('core', 'upright-bass', 'meta-piano', 'vsco-extended', 'vsco-complete', 'all')][string[]]$Pack = @('core'),
     [string]$Destination = $(if ($env:LMMS_SOUNDFONTS) { $env:LMMS_SOUNDFONTS } else { Join-Path $env:LOCALAPPDATA 'lmms-music-studio\soundfonts' }),
     [switch]$Force,
     [switch]$UpdateLock
